@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Nexus AI-PC</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="主导航">
+      <div class="brand-row">
+        <div class="brand-mark" aria-hidden="true">N</div>
+        <div>
+          <strong>Nexus</strong>
+          <span>AI-PC</span>
+        </div>
+      </div>
+
+      <nav class="primary-nav">
+        <button class="nav-item is-active" type="button" data-page="overview" aria-current="page">
+          <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
+        </button>
+        <button class="nav-item" type="button" data-page="learning">
+          <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span>
+        </button>
+        <button class="nav-item" type="button" data-page="library">
+          <i data-lucide="library" aria-hidden="true"></i><span>资料库</span>
+        </button>
+        <button class="nav-item" type="button" data-page="research">
+          <i data-lucide="microscope" aria-hidden="true"></i><span>科研</span>
+        </button>
+        <button class="nav-item" type="button" data-page="coding">
+          <i data-lucide="square-terminal" aria-hidden="true"></i><span>编程</span>
+        </button>
+        <button class="nav-item" type="button" data-page="automation">
+          <i data-lucide="workflow" aria-hidden="true"></i><span>自动化</span>
+        </button>
+      </nav>
+
+      <div class="nav-spacer"></div>
+
+      <nav class="secondary-nav">
+        <button class="nav-item" type="button" data-page="settings">
+          <i data-lucide="settings-2" aria-hidden="true"></i><span>设置</span>
+        </button>
+      </nav>
+
+      <div class="device-status">
+        <span class="status-dot is-online" aria-hidden="true"></span>
+        <div>
+          <strong>本地服务正常</strong>
+          <span>仅监听 127.0.0.1</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="topbar">
+        <button class="icon-button mobile-menu" id="mobile-menu" type="button" aria-label="打开导航" data-tooltip="打开导航">
+          <i data-lucide="menu" aria-hidden="true"></i>
+        </button>
+        <div class="page-heading">
+          <span id="page-eyebrow">工作台</span>
+          <h1 id="page-title">总览</h1>
+        </div>
+        <div class="topbar-tools">
+          <label class="global-search">
+            <i data-lucide="search" aria-hidden="true"></i>
+            <span class="sr-only">全局搜索</span>
+            <input id="global-search" type="search" placeholder="搜索资料、项目或记录">
+          </label>
+          <button class="icon-button" id="theme-toggle" type="button" aria-label="切换主题" data-tooltip="切换主题">
+            <i data-lucide="moon" aria-hidden="true"></i>
+          </button>
+          <button class="primary-button" id="ask-ai" type="button">
+            <i data-lucide="sparkles" aria-hidden="true"></i><span>询问助手</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <section class="page is-active" id="page-overview" data-title="总览" data-eyebrow="工作台">
+          <div class="welcome-row">
+            <div>
+              <p class="section-kicker" id="today-label">功能概览</p>
+              <h2>把最重要的工作向前推进</h2>
+              <p class="supporting-text">资料库与计数来自本地服务；学习建议、计划和活动仍在逐步接入。</p>
+            </div>
+            <button class="secondary-button" id="continue-setup" type="button">
+              <i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>完成初始设置</span>
+            </button>
+          </div>
+
+          <div class="metric-grid" aria-label="今日概览">
+            <article class="metric-card">
+              <div class="metric-icon learning-color"><i data-lucide="book-open-check" aria-hidden="true"></i></div>
+              <div><span>学习掌握度</span><strong id="overview-learning-mastery">—</strong><small id="overview-learning-status">读取本地记录</small></div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-icon library-color"><i data-lucide="files" aria-hidden="true"></i></div>
+              <div><span>已索引资料</span><strong id="indexed-count">—</strong><small id="indexed-status">读取本地索引</small></div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-icon research-color"><i data-lucide="flask-conical" aria-hidden="true"></i></div>
+              <div><span>科研项目</span><strong id="project-count">—</strong><small id="project-count-status">读取数据库记录</small></div>
+            </article>
+            <article class="metric-card">
+              <div class="metric-icon code-color"><i data-lucide="git-pull-request-arrow" aria-hidden="true"></i></div>
+              <div><span>Agent 任务</span><strong id="agent-count">—</strong><small id="agent-count-status">读取未完成任务</small></div>
+            </article>
+          </div>
+
+          <section class="quick-actions" aria-labelledby="quick-actions-title">
+            <div class="section-heading">
+              <div><p class="section-kicker">快速入口</p><h2 id="quick-actions-title">今天要做什么</h2></div>
+            </div>
+            <div class="action-grid">
+              <button type="button" class="action-tile" data-go="learning">
+                <i data-lucide="play-circle" aria-hidden="true"></i>
+                <span><strong>继续学习</strong><small>课程、答题与到期复习</small></span>
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="action-tile" data-go="library">
+                <i data-lucide="file-up" aria-hidden="true"></i>
+                <span><strong>导入资料</strong><small>PDF、Markdown 或 TXT</small></span>
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="action-tile" data-go="research">
+                <i data-lucide="search-check" aria-hidden="true"></i>
+                <span><strong>推进科研</strong><small>双源检索与文献筛选</small></span>
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+              <button type="button" class="action-tile" data-go="coding">
+                <i data-lucide="code-xml" aria-hidden="true"></i>
+                <span><strong>交给编程 Agent</strong><small>任务编排 · 规划中</small></span>
+                <i data-lucide="chevron-right" aria-hidden="true"></i>
+              </button>
+            </div>
+          </section>
+
+          <div class="two-column-layout overview-columns">
+            <section class="panel" aria-labelledby="today-plan-title">
+              <div class="panel-heading">
+                <div><p class="section-kicker">计划 · 示例</p><h2 id="today-plan-title">今日三件事</h2></div>
+                <button class="icon-button compact" type="button" data-tooltip="添加任务" aria-label="添加任务"><i data-lucide="plus" aria-hidden="true"></i></button>
+              </div>
+              <ol class="task-list">
+                <li><button class="task-check is-done" type="button" aria-label="标记任务未完成"><i data-lucide="check" aria-hidden="true"></i></button><div><strong>复习数列极限</strong><span>已完成 · 22 分钟</span></div></li>
+                <li><button class="task-check" type="button" aria-label="标记任务完成"></button><div><strong>筛选检索到的 8 篇论文</strong><span>科研 · 预计 30 分钟</span></div></li>
+                <li><button class="task-check" type="button" aria-label="标记任务完成"></button><div><strong>审查 Agent 生成的补丁</strong><span>编程 · 等待确认</span></div></li>
+              </ol>
+            </section>
+
+            <section class="panel" aria-labelledby="week-title">
+              <div class="panel-heading">
+                <div><p class="section-kicker">统计 · 示例</p><h2 id="week-title">本周投入</h2></div>
+                <strong class="panel-total">示例 6.8 小时</strong>
+              </div>
+              <div class="weekly-chart" role="img" aria-label="周一到周日学习与科研时长柱状图">
+                <div><span style="--bar:42%"></span><small>一</small></div>
+                <div><span style="--bar:68%"></span><small>二</small></div>
+                <div><span style="--bar:51%"></span><small>三</small></div>
+                <div><span style="--bar:86%"></span><small>四</small></div>
+                <div><span style="--bar:61%"></span><small>五</small></div>
+                <div><span style="--bar:34%"></span><small>六</small></div>
+                <div><span style="--bar:14%"></span><small>日</small></div>
+              </div>
+              <div class="chart-legend"><span><i class="legend-swatch learning-swatch"></i>学习 4.2h</span><span><i class="legend-swatch research-swatch"></i>科研 2.6h</span></div>
+            </section>
+          </div>
+
+          <section class="activity-section" aria-labelledby="activity-title">
+            <div class="section-heading">
+              <div><p class="section-kicker">记录 · 示例</p><h2 id="activity-title">最近活动</h2></div>
+              <button class="text-button" type="button">查看全部</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>时间</th><th>活动</th><th>所属模块</th><th>状态</th></tr></thead>
+                <tbody>
+                  <tr><td>20:46</td><td>《高等数学》第 2 章完成增量索引</td><td>资料库</td><td><span class="status-label is-success">完成</span></td></tr>
+                  <tr><td>20:31</td><td>导数概念掌握度从 61% 更新至 68%</td><td>学习</td><td><span class="status-label is-neutral">已记录</span></td></tr>
+                  <tr><td>19:58</td><td>文献证据矩阵新增 3 条结论</td><td>科研</td><td><span class="status-label is-success">完成</span></td></tr>
+                  <tr><td>19:12</td><td>修复检索页筛选逻辑</td><td>编程</td><td><span class="status-label is-warning">待审查</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="page" id="page-learning" data-title="学习" data-eyebrow="个人进度">
+          <div class="page-intro">
+            <div><p class="section-kicker">学习规划</p><h2>基于答题证据的学习路径</h2><p class="supporting-text" id="learning-page-description">创建课程和知识点后，系统会根据每次答题记录更新掌握度与复习时间。</p></div>
+            <div class="button-row"><span class="status-label is-neutral" id="learning-progress-source">等待本地记录</span><button class="secondary-button" id="refresh-learning" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新进度</span></button><button class="primary-button" id="start-session" type="button"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>记录答题</span></button></div>
+          </div>
+
+          <div class="learning-summary">
+            <div class="mastery-ring" role="img" aria-label="总体掌握度待读取"><span id="learning-mastery-value">—</span><small>总体掌握</small></div>
+            <div class="learning-facts"><div><span>课程</span><strong id="learning-course-count">0</strong></div><div><span>知识点</span><strong id="learning-concept-count">0</strong></div><div><span>待复习</span><strong id="learning-due-count">0</strong></div><div><span>学习时长</span><strong id="learning-study-time">0 分钟</strong></div></div>
+            <span class="status-label is-neutral learning-sample-label" id="learning-data-status">暂无本地记录</span>
+          </div>
+
+          <div class="learning-management two-column-layout">
+            <section class="panel" aria-labelledby="course-management-title">
+              <div class="panel-heading"><div><p class="section-kicker">课程</p><h2 id="course-management-title">选择或创建课程</h2></div><span class="status-label is-neutral" id="learning-course-state">未选择</span></div>
+              <form class="learning-form-grid" id="learning-course-form">
+                <label><span>当前课程</span><select id="learning-course-select" aria-label="当前课程"><option value="">全部课程</option></select></label>
+                <label><span>课程名称</span><input id="learning-course-title" type="text" maxlength="200" required placeholder="例如：高等数学"></label>
+                <label class="wide-field"><span>学习目标</span><textarea id="learning-course-goal" rows="2" maxlength="2000" required placeholder="例如：理解极限、导数和积分，并能独立完成综合题。"></textarea></label>
+                <label><span>目标日期（可选）</span><input id="learning-course-date" type="date"></label>
+                <div class="form-action"><button class="primary-button" type="submit"><i data-lucide="plus" aria-hidden="true"></i><span>创建课程</span></button></div>
+              </form>
+            </section>
+
+            <section class="panel" aria-labelledby="concept-management-title">
+              <div class="panel-heading"><div><p class="section-kicker">知识点</p><h2 id="concept-management-title">添加学习单元</h2></div><span class="status-label is-neutral" id="learning-concept-state">需先创建课程</span></div>
+              <form class="learning-form-grid" id="learning-concept-form">
+                <label><span>所属课程</span><select id="learning-concept-course" required><option value="">请选择课程</option></select></label>
+                <label><span>知识点名称</span><input id="learning-concept-name" type="text" maxlength="200" required placeholder="例如：数列极限"></label>
+                <label class="wide-field"><span>描述（可选）</span><textarea id="learning-concept-description" rows="2" maxlength="4000" placeholder="记录定义、关键公式或资料章节。"></textarea></label>
+                <label class="wide-field"><span>前置知识点（可选）</span><select id="learning-concept-prerequisites" multiple size="3" aria-label="前置知识点"><option value="">暂无可选前置知识点</option></select></label>
+                <div class="form-action"><button class="primary-button" type="submit"><i data-lucide="plus" aria-hidden="true"></i><span>添加知识点</span></button></div>
+              </form>
+            </section>
+          </div>
+
+          <div class="two-column-layout learning-columns">
+            <section class="panel" aria-labelledby="concept-title">
+              <div class="panel-heading"><div><p class="section-kicker">进度</p><h2 id="concept-title">知识点掌握度</h2></div><span class="panel-total" id="learning-progress-total">0 个</span></div>
+              <div class="mastery-list" id="learning-mastery-list"><div class="learning-empty"><i data-lucide="book-open" aria-hidden="true"></i><div><strong>还没有知识点</strong><span>先创建课程，再添加需要掌握的知识点。</span></div></div></div>
+            </section>
+
+            <section class="panel" aria-labelledby="review-title">
+              <div class="panel-heading"><div><p class="section-kicker">间隔复习</p><h2 id="review-title">到期复习</h2></div><span class="panel-total" id="learning-due-total">0 个</span></div>
+              <div class="review-list" id="learning-review-list"><div class="learning-empty"><i data-lucide="calendar-clock" aria-hidden="true"></i><div><strong>暂无到期复习</strong><span>完成答题后，系统会使用复习排程计算下一次复习时间。</span></div></div></div>
+              <div class="lesson-focus learning-next-focus" id="learning-next-focus" hidden></div>
+            </section>
+          </div>
+
+          <section class="panel question-panel" aria-labelledby="attempt-title" id="learning-attempt-panel">
+            <div class="panel-heading"><div><p class="section-kicker">答题证据</p><h2 id="attempt-title">记录一次练习或复习</h2></div><span class="status-label is-neutral" id="learning-attempt-state">保存到本地数据库</span></div>
+            <form class="learning-attempt-form" id="learning-attempt-form">
+              <label><span>知识点</span><select id="learning-attempt-concept" required><option value="">请选择知识点</option></select></label>
+              <label class="attempt-prompt-field"><span>题目或提示（可选）</span><textarea id="learning-attempt-prompt" rows="2" maxlength="2000" placeholder="记录本次练习的题目，便于以后回顾。"></textarea></label>
+              <label class="attempt-answer-field"><span>你的答案（可选）</span><textarea id="learning-attempt-answer" rows="3" maxlength="20000" placeholder="写下关键步骤、证明或自己的解释。"></textarea></label>
+              <div class="attempt-controls">
+                <label><span>得分 <output id="learning-score-output">70%</output></span><input id="learning-attempt-score" type="range" min="0" max="100" value="70" step="1"></label>
+                <label><span>信心 <output id="learning-confidence-output">70%</output></span><input id="learning-attempt-confidence" type="range" min="0" max="100" value="70" step="1"></label>
+                <label><span>用时（分钟）</span><input id="learning-attempt-duration" type="number" min="0" max="1440" step="1" value="0"></label>
+                <label><span>提示次数</span><input id="learning-attempt-hints" type="number" min="0" max="100" step="1" value="0"></label>
+              </div>
+              <label class="attempt-feedback-field"><span>复盘反馈（可选）</span><textarea id="learning-attempt-feedback" rows="2" maxlength="10000" placeholder="记录错误原因、需要补充的资料或下一步。"></textarea></label>
+              <div class="form-action attempt-submit"><span class="form-help">保存后会更新掌握度、复习评级和下次到期时间。</span><button class="primary-button" type="submit"><i data-lucide="save" aria-hidden="true"></i><span>保存答题记录</span></button></div>
+            </form>
+          </section>
+
+          <section class="panel learning-history-panel" aria-labelledby="learning-history-title">
+            <div class="panel-heading"><div><p class="section-kicker">历史</p><h2 id="learning-history-title">最近答题记录</h2></div><span class="status-label is-neutral" id="learning-history-state">暂无记录</span></div>
+            <div class="table-wrap" id="learning-history-wrap" hidden><table><thead><tr><th>时间</th><th>知识点</th><th>得分</th><th>评级</th><th>信心</th><th>用时</th></tr></thead><tbody id="learning-history-body"></tbody></table></div>
+            <div class="learning-empty learning-history-empty" id="learning-history-empty"><i data-lucide="history" aria-hidden="true"></i><div><strong>还没有答题记录</strong><span>保存第一次练习后，最近记录会显示在这里。</span></div></div>
+          </section>
+        </section>
+
+        <section class="page" id="page-library" data-title="资料库" data-eyebrow="本地知识">
+          <div class="page-intro">
+            <div><p class="section-kicker" id="library-file-count">0 个文件</p><h2>本地资料和可追溯索引</h2><p class="supporting-text">原文件保持只读，回答保留书名、章节、页码和版本。</p></div>
+            <div class="button-row"><button class="secondary-button" id="sync-library" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新列表</span></button><button class="primary-button" id="focus-import-path" type="button"><i data-lucide="file-plus-2" aria-hidden="true"></i><span>导入资料</span></button></div>
+          </div>
+
+          <form class="library-import-bar" id="library-import-form">
+            <label for="library-import-path"><span>文件或文件夹路径</span></label>
+            <div class="library-path-field"><i data-lucide="folder-search-2" aria-hidden="true"></i><input id="library-import-path" name="path" type="text" value="C:\AI-PC\data\library" autocomplete="off" spellcheck="false" required></div>
+            <button class="primary-button" id="library-import-submit" type="submit"><i data-lucide="scan-line" aria-hidden="true"></i><span>导入并索引</span></button>
+            <p class="library-import-feedback" id="library-import-feedback" role="status" aria-live="polite"></p>
+          </form>
+
+          <form class="filter-toolbar" id="library-search-form" role="search">
+            <label class="search-field"><i data-lucide="search" aria-hidden="true"></i><span class="sr-only">搜索资料内容</span><input id="library-search" name="q" type="search" placeholder="搜索资料内容" autocomplete="off"></label>
+            <button class="secondary-button" id="library-search-submit" type="submit"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
+            <button class="icon-button" id="library-search-clear" type="button" aria-label="清除搜索" data-tooltip="清除搜索" hidden><i data-lucide="x" aria-hidden="true"></i></button>
+            <div class="segmented-control library-search-mode" id="library-search-mode" role="group" aria-label="检索方式">
+              <button class="is-active" type="button" data-search-mode="hybrid">混合</button>
+              <button type="button" data-search-mode="semantic">语义</button>
+              <button type="button" data-search-mode="lexical">关键词</button>
+            </div>
+            <label><span>类型</span><select id="library-type"><option value="all">全部</option><option>PDF</option><option value="笔记">Markdown / TXT</option></select></label>
+            <label><span>状态</span><select id="library-status"><option value="all">全部</option><option value="ready">可用</option><option value="pending">处理中</option><option value="needs-review">需检查</option></select></label>
+          </form>
+
+          <div class="library-layout">
+            <section class="panel library-table-panel" aria-labelledby="documents-title">
+              <div class="panel-heading"><div><p class="section-kicker">文档</p><h2 id="documents-title">资料列表</h2></div><span id="library-result-count">读取中</span></div>
+              <div class="library-state" id="library-state" data-state="loading" role="status" aria-live="polite">
+                <i data-lucide="loader-circle" aria-hidden="true"></i>
+                <div><strong id="library-state-title">正在读取资料库</strong><p id="library-state-detail">请稍候</p></div>
+                <button class="secondary-button" id="library-retry" type="button" hidden><i data-lucide="rotate-cw" aria-hidden="true"></i><span>重试</span></button>
+              </div>
+              <div class="table-wrap" id="library-table-wrap" hidden>
+                <table id="library-table">
+                  <thead><tr><th>资料</th><th>来源路径</th><th>引用位置</th><th>内容摘要</th><th>索引</th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
+            <aside class="panel storage-panel" aria-labelledby="storage-title">
+              <div class="panel-heading"><div><p class="section-kicker">存储与索引</p><h2 id="storage-title">C 盘空间</h2></div><button class="icon-button compact" id="semantic-rebuild" type="button" aria-label="重建语义索引" data-tooltip="重建语义索引"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></div>
+              <div class="storage-meter"><div><span id="storage-meter-fill" style="width:0"></span></div><p><strong id="storage-used">读取中</strong> / <span id="storage-total">—</span></p></div>
+              <dl class="storage-breakdown"><div><dt><i class="legend-swatch learning-swatch"></i>剩余空间</dt><dd id="storage-free">—</dd></div><div><dt><i class="legend-swatch research-swatch"></i>语义索引</dt><dd id="semantic-index-state">读取中</dd></div><div><dt><i class="legend-swatch code-swatch"></i>AI-PC 根目录</dt><dd id="storage-root">C:\AI-PC</dd></div></dl>
+              <button class="secondary-button full-width" type="button"><i data-lucide="archive-restore" aria-hidden="true"></i><span>立即备份</span></button>
+            </aside>
+          </div>
+        </section>
+
+        <section class="page" id="page-research" data-title="科研" data-eyebrow="研究工作台">
+          <div class="page-intro">
+            <div><p class="section-kicker">研究工作台</p><h2>从研究问题到可追溯文献</h2><p class="supporting-text" id="research-intro-status">读取本地科研项目</p></div>
+            <div class="button-row"><label class="inline-select" for="research-project-select"><span class="sr-only">当前科研项目</span><select id="research-project-select" aria-label="当前科研项目"><option value="">选择项目</option></select></label><button class="primary-button" id="new-project" type="button"><i data-lucide="folder-plus" aria-hidden="true"></i><span>新建项目</span></button></div>
+          </div>
+
+          <nav class="research-pipeline" aria-label="科研流程">
+            <button class="is-current" type="button" data-research-view="question"><span>1</span>研究问题</button>
+            <button type="button" data-research-view="search"><span>2</span>文献检索</button>
+            <button type="button" data-research-view="screen"><span>3</span>筛选</button>
+            <button type="button" data-research-view="notes"><span>4</span>研究记录</button>
+          </nav>
+
+          <div class="research-grid">
+            <section class="panel research-focus" aria-labelledby="research-question-title">
+              <div class="panel-heading"><div><p class="section-kicker">当前问题</p><h2 id="research-question-title">尚未选择科研项目</h2></div><span class="status-label is-neutral" id="research-project-state">暂无项目</span></div>
+              <dl class="research-metadata"><div><dt>项目名称</dt><dd id="research-project-name">—</dd></div><div><dt>研究类型</dt><dd id="research-project-type">—</dd></div><div><dt>检索记录</dt><dd id="research-search-count">0 次</dd></div><div><dt>项目状态</dt><dd id="research-project-status">—</dd></div></dl>
+              <div class="next-action"><i data-lucide="arrow-right-circle" aria-hidden="true"></i><div><span>下一步</span><strong id="research-next-action">创建项目后开始检索</strong></div><button class="secondary-button" type="button" data-open-research="search">去检索</button></div>
+            </section>
+
+            <aside class="panel reproducibility-panel" aria-labelledby="repro-title">
+              <div class="panel-heading"><div><p class="section-kicker">记录状态</p><h2 id="repro-title">可追溯性</h2></div><strong id="research-trace-count">0 / 4</strong></div>
+              <ul class="check-list" id="research-trace-list">
+                <li data-trace="project"><i data-lucide="circle" aria-hidden="true"></i><span>研究问题已记录</span></li>
+                <li data-trace="search"><i data-lucide="circle" aria-hidden="true"></i><span>检索式与来源已保存</span></li>
+                <li data-trace="screen"><i data-lucide="circle" aria-hidden="true"></i><span>已有文献筛选决定</span></li>
+                <li data-trace="note"><i data-lucide="circle" aria-hidden="true"></i><span>研究日志已保存</span></li>
+              </ul>
+            </aside>
+          </div>
+
+          <section class="panel literature-panel" aria-labelledby="literature-title">
+            <div class="panel-heading">
+              <div><p class="section-kicker">Crossref + OpenAlex</p><h2 id="literature-title">候选文献</h2></div>
+              <span class="status-label is-neutral" id="research-paper-count">0 篇</span>
+            </div>
+            <form class="research-search-form" id="research-search-form" role="search">
+              <label class="search-field"><i data-lucide="search" aria-hidden="true"></i><span class="sr-only">文献检索式</span><input id="research-search-query" type="search" required maxlength="500" placeholder="输入主题、关键词或研究问题" autocomplete="off"></label>
+              <label><span>每个来源</span><select id="research-search-limit"><option value="5">5 篇</option><option value="10" selected>10 篇</option><option value="20">20 篇</option></select></label>
+              <button class="primary-button" id="run-literature-search" type="submit"><i data-lucide="search" aria-hidden="true"></i><span>检索文献</span></button>
+            </form>
+            <p class="research-search-feedback" id="research-search-feedback" role="status" aria-live="polite">选择项目后可开始检索</p>
+            <div class="research-empty" id="research-paper-empty"><i data-lucide="search-x" aria-hidden="true"></i><div><strong>还没有候选文献</strong><span>检索结果会保存在当前项目中。</span></div></div>
+            <div class="table-wrap" id="research-paper-wrap" hidden>
+              <table id="paper-table">
+                <thead><tr><th>论文</th><th>年份</th><th>来源</th><th>引用</th><th>筛选</th></tr></thead>
+                <tbody id="research-paper-body"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="two-column-layout research-bottom">
+            <section class="panel" aria-labelledby="screening-summary-title">
+              <div class="panel-heading"><div><p class="section-kicker">筛选进度</p><h2 id="screening-summary-title">当前检索</h2></div><span class="status-label is-neutral" id="research-search-source">尚未检索</span></div>
+              <div class="screening-summary" id="research-screening-summary"><div><span>待筛选</span><strong id="screening-pending">0</strong></div><div><span>纳入</span><strong id="screening-include">0</strong></div><div><span>待定</span><strong id="screening-maybe">0</strong></div><div><span>排除</span><strong id="screening-exclude">0</strong></div></div>
+            </section>
+
+            <section class="panel" aria-labelledby="notebook-title">
+              <div class="panel-heading"><div><p class="section-kicker">研究日志</p><h2 id="notebook-title">当前记录</h2></div><span id="note-save-state">未保存</span></div>
+              <textarea class="research-note" id="research-note" rows="7" placeholder="记录假设、数据处理决定、异常和下一步……"></textarea>
+              <div class="notebook-footer"><span><i data-lucide="git-commit-horizontal" aria-hidden="true"></i>保存时生成时间戳</span><button class="secondary-button" id="save-note" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存记录</span></button></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" id="page-coding" data-title="编程" data-eyebrow="Agent 工作区">
+          <div class="page-intro">
+            <div><p class="section-kicker">任务记录 · 执行器规划中</p><h2>先记录任务，再接入 VS Code Agent</h2><p class="supporting-text">当前只会把任务写入本地 SQLite 队列，不会修改代码、创建分支或运行测试。</p></div>
+            <button class="secondary-button" type="button" disabled><i data-lucide="external-link" aria-hidden="true"></i><span>VS Code 接入规划中</span></button>
+          </div>
+
+          <section class="panel agent-composer" aria-labelledby="agent-task-title">
+            <div class="panel-heading"><div><p class="section-kicker">本地任务队列</p><h2 id="agent-task-title">记录编程任务</h2></div><span class="status-label is-warning">仅记录，不执行</span></div>
+            <form id="agent-form">
+              <label><span>项目</span><select id="agent-project"><option>AI-PC Dashboard</option><option>学习引擎</option><option>资料摄取服务</option></select></label>
+              <label class="task-input"><span>任务</span><textarea id="agent-task" rows="3" placeholder="例如：为资料列表增加按作者筛选，并补充测试"></textarea></label>
+              <div class="agent-options"><label class="check-control"><input type="checkbox" disabled><span>运行测试（接入后）</span></label><label class="check-control"><input type="checkbox" disabled><span>生成变更说明（接入后）</span></label><label class="check-control"><input type="checkbox" disabled><span>允许安装依赖（接入后）</span></label><button class="primary-button" type="submit"><i data-lucide="list-plus" aria-hidden="true"></i><span>记录任务</span></button></div>
+            </form>
+          </section>
+
+          <div class="two-column-layout code-columns">
+            <section class="panel" aria-labelledby="agent-queue-title">
+              <div class="panel-heading"><div><p class="section-kicker">本地记录</p><h2 id="agent-queue-title">本次打开后记录的任务</h2></div></div>
+              <div class="agent-task-list" id="agent-task-list">
+                <div class="learning-empty" id="agent-task-empty"><i data-lucide="inbox" aria-hidden="true"></i><div><strong>还没有任务记录</strong><span>记录后会保存到 SQLite；后续接入执行器后才会真正修改代码。</span></div></div>
+              </div>
+            </section>
+
+            <section class="panel" aria-labelledby="permission-title">
+              <div class="panel-heading"><div><p class="section-kicker">目标权限模型 · 规划中</p><h2 id="permission-title">执行器接入后的策略</h2></div></div>
+              <dl class="permission-list"><div><dt>读取项目文件</dt><dd><span class="status-label is-success">自动允许</span></dd></div><div><dt>修改工作区</dt><dd><span class="status-label is-neutral">展示 diff</span></dd></div><div><dt>运行测试</dt><dd><span class="status-label is-success">自动允许</span></dd></div><div><dt>安装依赖</dt><dd><span class="status-label is-warning">每次确认</span></dd></div><div><dt>推送或发布</dt><dd><span class="status-label is-danger">默认阻止</span></dd></div></dl>
+            </section>
+          </div>
+        </section>
+
+        <section class="page" id="page-automation" data-title="自动化" data-eyebrow="任务与工具">
+          <div class="page-intro">
+            <div><p class="section-kicker">流程设计 · 执行器规划中</p><h2>规划重复工作</h2><p class="supporting-text">当前没有自动化调度器；以下仅展示目标流程，不会定时运行或执行外部操作。</p></div>
+            <button class="primary-button" id="new-automation" type="button" disabled><i data-lucide="plus" aria-hidden="true"></i><span>创建流程（规划中）</span></button>
+          </div>
+
+          <section class="automation-list" aria-label="自动化流程示例">
+            <article class="automation-item"><div class="automation-icon"><i data-lucide="folder-sync" aria-hidden="true"></i></div><div><strong>资料库增量索引（示例）</strong><span>目标：检测到新文件时运行</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="资料库增量索引尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
+            <article class="automation-item"><div class="automation-icon"><i data-lucide="calendar-check-2" aria-hidden="true"></i></div><div><strong>每日学习计划（示例）</strong><span>目标：每天生成复习与学习任务</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="每日学习计划尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
+            <article class="automation-item"><div class="automation-icon"><i data-lucide="scan-search" aria-hidden="true"></i></div><div><strong>科研检索更新（示例）</strong><span>目标：按计划更新候选文献</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="科研检索更新尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
+            <article class="automation-item"><div class="automation-icon"><i data-lucide="mail-check" aria-hidden="true"></i></div><div><strong>周报发送（示例）</strong><span>目标：确认后生成并发送周报</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="周报发送尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
+          </section>
+
+          <section class="panel automation-log" aria-labelledby="automation-log-title">
+            <div class="panel-heading"><div><p class="section-kicker">执行记录</p><h2 id="automation-log-title">尚无真实自动化日志</h2></div></div>
+            <div class="table-wrap"><table><thead><tr><th>时间</th><th>流程</th><th>操作</th><th>结果</th><th>耗时</th></tr></thead><tbody><tr><td colspan="5">接入调度器并实际运行流程后，审计记录会显示在这里。</td></tr></tbody></table></div>
+          </section>
+        </section>
+
+        <section class="page" id="page-settings" data-title="设置" data-eyebrow="系统配置">
+          <div class="page-intro">
+            <div><p class="section-kicker">初始设置 3 / 5</p><h2>连接服务并保护本地数据</h2><p class="supporting-text">普通设置使用任务名称；模型和端点只放在高级设置中。</p></div>
+            <button class="primary-button" id="save-settings" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存设置</span></button>
+          </div>
+
+          <div class="settings-layout">
+            <section class="settings-section" aria-labelledby="provider-title">
+              <div class="settings-heading"><div><h2 id="provider-title">模型服务</h2><p>选择一个稳定可用的服务商；稍后可以增加备用线路。</p></div><span class="status-label is-neutral" id="provider-state">读取中</span></div>
+              <div class="settings-fields">
+                <label><span>服务商</span><select id="provider-select"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
+                <label><span>API 地址</span><input id="api-endpoint" type="url" value="https://api.openai.com/v1"></label>
+                <label class="wide-field"><span>API 密钥</span><div class="secret-field"><input id="api-key" type="password" autocomplete="off" placeholder="输入后仅写入系统凭据库"><button class="icon-button compact" id="toggle-key" type="button" aria-label="显示或隐藏密钥"><i data-lucide="eye" aria-hidden="true"></i></button></div></label>
+                <div class="field-action"><button class="secondary-button" id="test-provider" type="button"><i data-lucide="shield-check" aria-hidden="true"></i><span>安全保存密钥</span></button><span id="provider-message">密钥只存入 Windows 凭据管理器</span></div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="data-title">
+              <div class="settings-heading"><div><h2 id="data-title">本地数据</h2><p>资料、索引、学习状态和审计日志都保存在此位置。</p></div><span class="status-label is-success">本地</span></div>
+              <div class="settings-fields"><label class="wide-field"><span>数据目录</span><div class="path-field"><input id="data-path" type="text" value="C:\AI-PC"><button class="secondary-button" type="button">选择</button></div></label><label><span>备份频率</span><select><option>每天</option><option>每周</option><option>手动</option></select></label><label><span>保留版本</span><select><option>最近 14 份</option><option>最近 30 份</option><option>最近 90 份</option></select></label></div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="privacy-title">
+              <div class="settings-heading"><div><h2 id="privacy-title">隐私与审批</h2><p>只把回答所需的最少片段发送给模型服务。</p></div></div>
+              <div class="toggle-list">
+                <label><span><strong>敏感资料使用本地 Embedding</strong><small>文本不会发送给外部 Embedding 服务</small></span><span class="switch"><input type="checkbox" checked><span></span></span></label>
+                <label><span><strong>外发操作每次确认</strong><small>邮件、上传、发布和提交表单</small></span><span class="switch"><input type="checkbox" checked><span></span></span></label>
+                <label><span><strong>保留工具审计日志</strong><small>记录参数、结果、批准人和时间</small></span><span class="switch"><input type="checkbox" checked><span></span></span></label>
+                <label><span><strong>匿名使用统计</strong><small>仅用于本地成本和性能分析</small></span><span class="switch"><input type="checkbox"><span></span></span></label>
+              </div>
+            </section>
+
+            <details class="advanced-settings">
+              <summary><i data-lucide="wrench" aria-hidden="true"></i><span>高级设置</span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+              <div class="settings-fields"><label><span>深度推理</span><input type="text" value="reasoning"></label><label><span>快速任务</span><input type="text" value="fast"></label><label><span>视觉理解</span><input type="text" value="vision"></label><label><span>文本向量</span><input type="text" value="embedding"></label></div>
+            </details>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <dialog id="assistant-dialog" class="app-dialog">
+    <form method="dialog" class="dialog-shell">
+      <header><div><p class="section-kicker">统一入口</p><h2>询问 Nexus</h2></div><button class="icon-button" value="cancel" aria-label="关闭"><i data-lucide="x" aria-hidden="true"></i></button></header>
+      <div class="assistant-context"><i data-lucide="shield-check" aria-hidden="true"></i><span>将根据问题自动选择资料、学习记录或科研项目；执行操作前会请求确认。</span></div>
+      <div class="prompt-presets" aria-label="常用任务">
+        <button type="button" data-prompt="根据我的高数进度安排今天的学习">安排今天的学习</button>
+        <button type="button" data-prompt="总结当前科研项目的证据和下一步">整理科研下一步</button>
+        <button type="button" data-prompt="搜索本地资料并附上页码">搜索本地资料</button>
+        <button type="button" data-prompt="检查编程 Agent 的待审查变更">审查代码变更</button>
+      </div>
+      <label class="dialog-prompt"><span class="sr-only">问题</span><textarea id="assistant-input" rows="5" placeholder="输入问题或要完成的任务"></textarea></label>
+      <footer><span>当前模式：自动选择工具</span><button class="primary-button" id="send-assistant" type="button"><i data-lucide="send" aria-hidden="true"></i><span>发送</span></button></footer>
+    </form>
+  </dialog>
+
+  <dialog id="project-dialog" class="app-dialog compact-dialog">
+    <form method="dialog" id="project-form" class="dialog-shell">
+      <header><div><p class="section-kicker">科研</p><h2>新建研究项目</h2></div><button class="icon-button" type="button" data-close-dialog="#project-dialog" aria-label="关闭"><i data-lucide="x" aria-hidden="true"></i></button></header>
+      <div class="dialog-fields"><label for="project-name"><span>项目名称</span><input id="project-name" type="text" required placeholder="例如：间隔学习与数学掌握"></label><label for="project-question"><span>研究问题</span><textarea id="project-question" rows="4" required placeholder="明确研究对象、干预、比较和结果"></textarea></label><label for="project-type"><span>研究类型</span><select id="project-type"><option>文献综述</option><option>实验研究</option><option>数据分析</option><option>理论研究</option><option>混合方法</option></select></label></div>
+      <footer><button class="secondary-button" type="button" data-close-dialog="#project-dialog">取消</button><button class="primary-button" value="default" type="submit"><i data-lucide="folder-plus" aria-hidden="true"></i><span>创建项目</span></button></footer>
+    </form>
+  </dialog>
+
+  <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+  <div class="mobile-scrim" id="mobile-scrim"></div>
+</body>
+</html>
