@@ -18,6 +18,8 @@
 
 正式服务地址：`http://127.0.0.1:8765`
 
+若部署前已经打开过页面并仍看到旧界面，使用一次 `http://127.0.0.1:8765/?v=20260806-agent`。当前 HTML、CSS 和 JavaScript 已禁用持久缓存，后续普通刷新会读取新版本。
+
 ## 2. 关键目录
 
 ```text
@@ -60,6 +62,16 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - Zotero `9.0.6`：已安装，Dashboard 尚未自动读取或同步 Zotero 数据库。
 - Obsidian `1.13.4`：Vault 已作为 Markdown 资料与笔记目录使用，但没有双向结构化同步。
 - PaperQA2、OpenAdapt：已完成项目核验，尚未安装和接入。
+
+安装过程还有以下无用残留，合计约 420 MiB。它们不影响运行；后续可在资源管理器确认路径后删除：
+
+```text
+C:\AI-PC\tools\downloads\deeptutor-v1.5.9-37c3db6.incomplete-20260806-1039.zip
+C:\AI-PC\tools\downloads\deeptutor-duplicate-venv-incomplete-20260806
+C:\AI-PC\tools\deeptutor\.verify-home
+C:\AI-PC\tools\deeptutor-git-metadata-37c3db6
+C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
+```
 
 ## 5. 必须保留的安全边界
 
