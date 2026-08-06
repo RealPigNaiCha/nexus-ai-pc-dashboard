@@ -1016,15 +1016,23 @@ def create_app(
 
         @app.get("/", include_in_schema=False)
         def dashboard() -> FileResponse:
-            return FileResponse(PROJECT_DIR / "index.html")
+            return FileResponse(PROJECT_DIR / "index.html", headers={"Cache-Control": "no-store"})
 
         @app.get("/styles.css", include_in_schema=False)
         def styles() -> FileResponse:
-            return FileResponse(PROJECT_DIR / "styles.css", media_type="text/css")
+            return FileResponse(
+                PROJECT_DIR / "styles.css",
+                media_type="text/css",
+                headers={"Cache-Control": "no-store"},
+            )
 
         @app.get("/app.js", include_in_schema=False)
         def script() -> FileResponse:
-            return FileResponse(PROJECT_DIR / "app.js", media_type="text/javascript")
+            return FileResponse(
+                PROJECT_DIR / "app.js",
+                media_type="text/javascript",
+                headers={"Cache-Control": "no-store"},
+            )
 
     return app
 

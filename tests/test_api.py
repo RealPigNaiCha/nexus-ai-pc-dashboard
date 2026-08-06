@@ -126,3 +126,5 @@ def test_static_dashboard(tmp_path: Path) -> None:
         response = client.get("/")
         assert response.status_code == 200
         assert "Nexus AI-PC" in response.text
+        assert response.headers["cache-control"] == "no-store"
+        assert client.get("/app.js").headers["cache-control"] == "no-store"
