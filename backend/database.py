@@ -224,7 +224,12 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
     run_tests INTEGER NOT NULL DEFAULT 1,
     generate_summary INTEGER NOT NULL DEFAULT 1,
     allow_dependencies INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    task_file TEXT,
+    task_sha256 TEXT,
+    handoff_requested_at TEXT,
+    last_error TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -298,6 +303,64 @@ class Database:
         with self._write_lock, self.connect() as connection:
             connection.executemany(sql, rows)
             connection.commit()
+
+    def claim_agent_handoff(self, task_id: int) -> dict[str, Any] | None:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE agent_tasks
+                SET status = 'handoff_pending', updated_at = ?, last_error = NULL
+                WHERE id = ? AND status = 'queued'
+                """,
+                (now, task_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+            row = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            connection.commit()
+            return dict(row) if row else None
+
+    def complete_agent_handoff(
+        self,
+        task_id: int,
+        *,
+        task_file: str,
+        task_sha256: str,
+    ) -> dict[str, Any] | None:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE agent_tasks
+                SET status = 'handoff_requested', task_file = ?, task_sha256 = ?,
+                    handoff_requested_at = ?, updated_at = ?, last_error = NULL
+                WHERE id = ? AND status = 'handoff_pending'
+                """,
+                (task_file, task_sha256, now, now, task_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+            row = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            connection.commit()
+            return dict(row) if row else None
+
+    def fail_agent_handoff(self, task_id: int, error_code: str) -> dict[str, Any] | None:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE agent_tasks
+                SET status = 'handoff_failed', updated_at = ?, last_error = ?
+                WHERE id = ? AND status = 'handoff_pending'
+                """,
+                (now, error_code[:100], task_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+            row = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            connection.commit()
+            return dict(row) if row else None
 
     def save_research_search(
         self,
@@ -963,6 +1026,20 @@ class Database:
         )
         connection.execute(
             "CREATE INDEX IF NOT EXISTS idx_learning_due ON learning_concepts(due_at, mastery)"
+        )
+        agent_columns = {row["name"] for row in connection.execute("PRAGMA table_info(agent_tasks)")}
+        agent_additions = {
+            "updated_at": "TEXT",
+            "task_file": "TEXT",
+            "task_sha256": "TEXT",
+            "handoff_requested_at": "TEXT",
+            "last_error": "TEXT",
+        }
+        for name, definition in agent_additions.items():
+            if name not in agent_columns:
+                connection.execute(f"ALTER TABLE agent_tasks ADD COLUMN {name} {definition}")
+        connection.execute(
+            "UPDATE agent_tasks SET updated_at = created_at WHERE updated_at IS NULL"
         )
         connection.execute(
             """

@@ -136,7 +136,7 @@
               </button>
               <button type="button" class="action-tile" data-go="coding">
                 <i data-lucide="code-xml" aria-hidden="true"></i>
-                <span><strong>交给编程 Agent</strong><small>任务编排 · 规划中</small></span>
+                <span><strong>交给编程 Agent</strong><small>VS Code + Cline · 显式交接</small></span>
                 <i data-lucide="chevron-right" aria-hidden="true"></i>
               </button>
             </div>
@@ -383,30 +383,30 @@
 
         <section class="page" id="page-coding" data-title="编程" data-eyebrow="Agent 工作区">
           <div class="page-intro">
-            <div><p class="section-kicker">任务记录 · 执行器规划中</p><h2>先记录任务，再接入 VS Code Agent</h2><p class="supporting-text">当前只会把任务写入本地 SQLite 队列，不会修改代码、创建分支或运行测试。</p></div>
-            <button class="secondary-button" type="button" disabled><i data-lucide="external-link" aria-hidden="true"></i><span>VS Code 接入规划中</span></button>
+            <div><p class="section-kicker">VS Code + Cline · 显式交接</p><h2>记录任务，由你确认后打开编程 Agent</h2><p class="supporting-text">任务与状态保存在本地 SQLite；只有点击具体任务的交接按钮后，系统才会打开允许的源码工作区和 Cline。</p></div>
+            <div class="button-row"><span class="status-label is-neutral" id="agent-runtime-state">检测工具中</span><button class="secondary-button" id="refresh-agent" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新状态</span></button></div>
           </div>
 
           <section class="panel agent-composer" aria-labelledby="agent-task-title">
-            <div class="panel-heading"><div><p class="section-kicker">本地任务队列</p><h2 id="agent-task-title">记录编程任务</h2></div><span class="status-label is-warning">仅记录，不执行</span></div>
+            <div class="panel-heading"><div><p class="section-kicker">本地任务队列</p><h2 id="agent-task-title">记录编程任务</h2></div><span class="status-label is-neutral" id="agent-queue-mode">等待工具状态</span></div>
             <form id="agent-form">
-              <label><span>项目</span><select id="agent-project"><option>AI-PC Dashboard</option><option>学习引擎</option><option>资料摄取服务</option></select></label>
+              <label><span>项目</span><select id="agent-project"><option>AI-PC Dashboard</option></select></label>
               <label class="task-input"><span>任务</span><textarea id="agent-task" rows="3" placeholder="例如：为资料列表增加按作者筛选，并补充测试"></textarea></label>
-              <div class="agent-options"><label class="check-control"><input type="checkbox" disabled><span>运行测试（接入后）</span></label><label class="check-control"><input type="checkbox" disabled><span>生成变更说明（接入后）</span></label><label class="check-control"><input type="checkbox" disabled><span>允许安装依赖（接入后）</span></label><button class="primary-button" type="submit"><i data-lucide="list-plus" aria-hidden="true"></i><span>记录任务</span></button></div>
+              <div class="agent-options"><label class="check-control"><input id="agent-run-tests" type="checkbox" checked><span>完成后运行测试</span></label><label class="check-control"><input id="agent-generate-summary" type="checkbox" checked><span>生成变更说明</span></label><label class="check-control"><input id="agent-allow-dependencies" type="checkbox"><span>允许提出安装依赖</span></label><button class="primary-button" type="submit"><i data-lucide="list-plus" aria-hidden="true"></i><span>记录任务</span></button></div>
             </form>
           </section>
 
           <div class="two-column-layout code-columns">
             <section class="panel" aria-labelledby="agent-queue-title">
-              <div class="panel-heading"><div><p class="section-kicker">本地记录</p><h2 id="agent-queue-title">本次打开后记录的任务</h2></div></div>
+              <div class="panel-heading"><div><p class="section-kicker">SQLite 队列</p><h2 id="agent-queue-title">已记录任务</h2></div><span class="panel-total" id="agent-task-total">0 个</span></div>
               <div class="agent-task-list" id="agent-task-list">
-                <div class="learning-empty" id="agent-task-empty"><i data-lucide="inbox" aria-hidden="true"></i><div><strong>还没有任务记录</strong><span>记录后会保存到 SQLite；后续接入执行器后才会真正修改代码。</span></div></div>
+                <div class="learning-empty" id="agent-task-empty"><i data-lucide="inbox" aria-hidden="true"></i><div><strong>还没有任务记录</strong><span>新任务会先进入本地队列，再由你决定何时交给 Cline。</span></div></div>
               </div>
             </section>
 
             <section class="panel" aria-labelledby="permission-title">
-              <div class="panel-heading"><div><p class="section-kicker">目标权限模型 · 规划中</p><h2 id="permission-title">执行器接入后的策略</h2></div></div>
-              <dl class="permission-list"><div><dt>读取项目文件</dt><dd><span class="status-label is-success">自动允许</span></dd></div><div><dt>修改工作区</dt><dd><span class="status-label is-neutral">展示 diff</span></dd></div><div><dt>运行测试</dt><dd><span class="status-label is-success">自动允许</span></dd></div><div><dt>安装依赖</dt><dd><span class="status-label is-warning">每次确认</span></dd></div><div><dt>推送或发布</dt><dd><span class="status-label is-danger">默认阻止</span></dd></div></dl>
+              <div class="panel-heading"><div><p class="section-kicker">当前权限模型</p><h2 id="permission-title">交接仍受 Cline 审批</h2></div></div>
+              <dl class="permission-list"><div><dt>允许的工作区</dt><dd><span class="status-label is-success">固定映射</span></dd></div><div><dt>修改源码</dt><dd><span class="status-label is-neutral">展示 diff</span></dd></div><div><dt>运行测试</dt><dd><span class="status-label is-neutral">按任务设置</span></dd></div><div><dt>安装依赖</dt><dd><span class="status-label is-warning">逐步确认</span></dd></div><div><dt>推送或发布</dt><dd><span class="status-label is-danger">默认阻止</span></dd></div></dl>
             </section>
           </div>
         </section>
@@ -444,6 +444,13 @@
                 <label><span>API 地址</span><input id="api-endpoint" type="url" value="https://api.openai.com/v1"></label>
                 <label class="wide-field"><span>API 密钥</span><div class="secret-field"><input id="api-key" type="password" autocomplete="off" placeholder="输入后仅写入系统凭据库"><button class="icon-button compact" id="toggle-key" type="button" aria-label="显示或隐藏密钥"><i data-lucide="eye" aria-hidden="true"></i></button></div></label>
                 <div class="field-action"><button class="secondary-button" id="test-provider" type="button"><i data-lucide="shield-check" aria-hidden="true"></i><span>安全保存密钥</span></button><span id="provider-message">密钥只存入 Windows 凭据管理器</span></div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="tools-title">
+              <div class="settings-heading"><div><h2 id="tools-title">开源能力</h2><p>旧系统继续保存权威数据，成熟项目作为可替换的能力层接入。</p></div><button class="secondary-button" id="refresh-tools" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新状态</span></button></div>
+              <div class="tool-registry-list" id="tool-registry-list">
+                <div class="tool-registry-empty"><i data-lucide="loader-circle" aria-hidden="true"></i><span>正在检测本机工具</span></div>
               </div>
             </section>
 

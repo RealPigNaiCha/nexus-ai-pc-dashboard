@@ -4,8 +4,10 @@ import os
 import shutil
 from contextlib import asynccontextmanager
 from datetime import date
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal, Sequence
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, status
@@ -14,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr
 
+from .agent import AgentHandoff, AgentHandoffError
 from .credentials import (
     SUPPORTED_PROVIDERS,
     ApiCredentialStore,
@@ -33,6 +36,7 @@ from .semantic import (
     SemanticDocument,
     SemanticIndex,
 )
+from .tooling import ToolRegistry
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
@@ -122,6 +126,8 @@ def create_app(
     credential_backend: KeyringBackend | None = None,
     research_transport: httpx.BaseTransport | None = None,
     semantic_index: SemanticIndex | None = None,
+    agent_handoff: AgentHandoff | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> FastAPI:
     configured_path = os.getenv("AI_PC_DB_PATH")
     db_path = database_path or (Path(configured_path) if configured_path else PROJECT_DIR / "data" / "ai-pc.sqlite3")
@@ -135,6 +141,19 @@ def create_app(
     )
     index_root = Path(os.getenv("AI_PC_INDEX_PATH", str(storage_root / "data" / "index")))
     owns_semantic_index = semantic_index is None and database_path is None
+    agent_workspace_root = storage_root / "workspaces"
+    agent_workspace = Path(
+        os.getenv("AI_PC_AGENT_WORKSPACE", str(agent_workspace_root / "ai-pc-dashboard"))
+    )
+    agent_task_root = Path(
+        os.getenv("AI_PC_AGENT_TASK_ROOT", str(storage_root / "data" / "agent" / "tasks"))
+    )
+    active_agent_handoff = agent_handoff or AgentHandoff(
+        agent_workspace,
+        agent_task_root,
+        allowed_workspace_root=agent_workspace_root,
+    )
+    active_tool_registry = tool_registry or ToolRegistry(storage_root, active_agent_handoff)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -151,6 +170,8 @@ def create_app(
             app.state.credential_store = credential_store
             app.state.literature_client = literature_client
             app.state.semantic_index = active_semantic_index
+            app.state.agent_handoff = active_agent_handoff
+            app.state.tool_registry = active_tool_registry
             yield
         finally:
             literature_client.close()
@@ -195,6 +216,39 @@ def create_app(
         except CredentialStorageError:
             raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
 
+    def is_loopback_host(host: str | None) -> bool:
+        if not host:
+            return False
+        if host.lower() == "localhost":
+            return True
+        try:
+            return ip_address(host).is_loopback
+        except ValueError:
+            return False
+
+    def origin_identity(value: str) -> tuple[str, str, int] | None:
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            return None
+        try:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError:
+            return None
+        return parsed.scheme, parsed.hostname.lower(), port
+
+    def require_local_same_origin_handoff(request: Request) -> None:
+        if request.headers.get("x-ai-pc-action") != "agent-handoff":
+            raise HTTPException(status_code=403, detail="Agent handoff request was rejected")
+        if not is_loopback_host(request.url.hostname):
+            raise HTTPException(status_code=403, detail="Agent handoff request was rejected")
+        request_origin = origin_identity(str(request.base_url).rstrip("/"))
+        supplied_origin = origin_identity(request.headers.get("origin", ""))
+        if request_origin is None or supplied_origin != request_origin:
+            raise HTTPException(status_code=403, detail="Agent handoff request was rejected")
+        fetch_site = request.headers.get("sec-fetch-site")
+        if fetch_site and fetch_site not in {"same-origin", "none"}:
+            raise HTTPException(status_code=403, detail="Agent handoff request was rejected")
+
     @app.get("/api/health")
     def health(request: Request) -> dict:
         database = db(request)
@@ -213,7 +267,10 @@ def create_app(
             SELECT
                 (SELECT COUNT(*) FROM documents) AS documents,
                 (SELECT COUNT(*) FROM research_projects) AS research_projects,
-                (SELECT COUNT(*) FROM agent_tasks WHERE status != 'completed') AS active_agent_tasks,
+                (
+                    SELECT COUNT(*) FROM agent_tasks
+                    WHERE status IN ('queued', 'handoff_pending', 'handoff_requested')
+                ) AS active_agent_tasks,
                 (SELECT ROUND(AVG(mastery), 1) FROM learning_concepts) AS learning_mastery
             """
         )
@@ -228,6 +285,10 @@ def create_app(
             }
         )
         return result
+
+    @app.get("/api/tools")
+    def list_tools() -> dict[str, list[dict[str, object]]]:
+        return {"tools": active_tool_registry.list_tools(app.version)}
 
     @app.get("/api/library/documents")
     def list_documents(
@@ -816,13 +877,20 @@ def create_app(
     def list_agent_tasks(request: Request) -> list[dict]:
         return db(request).query_all("SELECT * FROM agent_tasks ORDER BY created_at DESC, id DESC")
 
+    @app.get("/api/agent/status")
+    def get_agent_status() -> dict[str, object]:
+        return active_agent_handoff.status()
+
     @app.post("/api/agent/tasks", status_code=status.HTTP_201_CREATED)
     def create_agent_task(payload: AgentTaskCreate, request: Request) -> dict:
         database = db(request)
         task_id = database.execute(
             """
-            INSERT INTO agent_tasks(project, title, status, run_tests, generate_summary, allow_dependencies, created_at)
-            VALUES (?, ?, 'queued', ?, ?, ?, ?)
+            INSERT INTO agent_tasks(
+                project, title, status, run_tests, generate_summary,
+                allow_dependencies, created_at, updated_at
+            )
+            VALUES (?, ?, 'queued', ?, ?, ?, ?, ?)
             """,
             (
                 payload.project,
@@ -831,10 +899,51 @@ def create_app(
                 int(payload.generate_summary),
                 int(payload.allow_dependencies),
                 utc_now(),
+                utc_now(),
             ),
         )
         database.audit("agent", "create_task", str(task_id))
         return database.query_one("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)) or {}
+
+    @app.post("/api/agent/tasks/{task_id}/handoff")
+    def handoff_agent_task(task_id: int, request: Request) -> dict[str, object]:
+        require_local_same_origin_handoff(request)
+        database = db(request)
+        existing = database.query_one("SELECT * FROM agent_tasks WHERE id = ?", (task_id,))
+        if not existing:
+            raise HTTPException(status_code=404, detail="Agent task not found")
+        if not active_agent_handoff.status()["available"]:
+            raise HTTPException(status_code=503, detail="VS Code, Cline, or the approved workspace is unavailable")
+
+        task = database.claim_agent_handoff(task_id)
+        if task is None:
+            current = database.query_one("SELECT status FROM agent_tasks WHERE id = ?", (task_id,))
+            current_status = current["status"] if current else "missing"
+            raise HTTPException(status_code=409, detail=f"Agent task cannot be handed off from {current_status}")
+
+        try:
+            prepared_task = active_agent_handoff.prepare_task(task)
+            active_agent_handoff.open_in_cline(task, prepared_task.path)
+        except AgentHandoffError as error:
+            database.fail_agent_handoff(task_id, "agent_handoff_failed")
+            database.audit("agent", "handoff", str(task_id), result="error")
+            raise HTTPException(status_code=503, detail=str(error)) from None
+
+        completed = database.complete_agent_handoff(
+            task_id,
+            task_file=str(prepared_task.path),
+            task_sha256=prepared_task.sha256,
+        )
+        if completed is None:
+            database.audit("agent", "handoff", str(task_id), result="state_error")
+            raise HTTPException(status_code=409, detail="Agent handoff state could not be finalized")
+        database.audit("agent", "handoff", str(task_id))
+        return {
+            "status": "handoff_requested",
+            "task": completed,
+            "task_file": str(prepared_task.path),
+            "task_sha256": prepared_task.sha256,
+        }
 
     @app.get("/api/settings")
     def get_settings(request: Request) -> dict[str, str]:

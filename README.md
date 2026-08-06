@@ -1,6 +1,8 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、Crossref/OpenAlex 科研检索与筛选、科研笔记、Agent 任务队列、非敏感设置、Windows 凭据库中的 API 密钥管理和审计记录。通用 AI 对话、Agent 实际执行、Zotero 自动同步、定时自动化和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、Crossref/OpenAlex 科研检索与筛选、科研笔记、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理和审计记录。通用 AI 对话、DeepTutor 模型适配器、Zotero 自动同步、定时自动化和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+
+项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
 
 正式部署目录为 `C:\AI-PC\app\dashboard`，访问地址为 `http://127.0.0.1:8765`。直接双击 `index.html` 只会进入演示模式，不能访问本地数据库或导入文件。
 
@@ -368,7 +370,7 @@ uv run pytest
 & '.\.venv\Scripts\python.exe' -c "import sqlite3; c=sqlite3.connect(r'C:\AI-PC\data\database\ai-pc.sqlite3'); print(c.execute('PRAGMA quick_check').fetchone()[0]); c.close()"
 ```
 
-2026-08-06 的当前验证结果为 `37 passed`；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
+2026-08-06 的当前验证结果为 `50 passed`；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
 
 ## 11. 常见问题
 
@@ -393,7 +395,8 @@ uv run pytest
 - `/api/research/projects`、`/api/research/projects/{id}/notes`
 - `/api/research/projects/{id}/searches`、`/api/research/searches/{id}`
 - `/api/research/projects/{id}/screening`、`/api/research/projects/{id}/papers/{paper_id}/screening`
-- `/api/agent/tasks`
+- `/api/tools`、`/api/agent/status`
+- `/api/agent/tasks`、`/api/agent/tasks/{id}/handoff`
 - `/api/settings`、`/api/audit`
 - `/api/credentials`、`/api/credentials/{provider}`
 

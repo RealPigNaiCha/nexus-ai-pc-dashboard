@@ -33,14 +33,18 @@
   let researchPapers = [];
   let researchScreening = [];
   let researchNotes = [];
+  let agentTasks = [];
+  let agentRuntime = null;
+  let toolRegistry = [];
 
   async function apiFetch(path, options = {}) {
     if (window.location.protocol === "file:") return null;
+    const { headers = {}, ...requestOptions } = options;
     let response;
     try {
       response = await fetch(`/api${path}`, {
-        headers: { "Content-Type": "application/json", ...(options.headers || {}) },
-        ...options
+        ...requestOptions,
+        headers: { "Content-Type": "application/json", ...headers }
       });
     } catch {
       setServiceStatus(false);
@@ -81,6 +85,8 @@
       showLearningUnavailable("本地服务未连接", "启动本地服务后可创建课程、记录答题并计算复习时间。");
       clearResearchProject("本地服务未连接");
       if (qs("#semantic-index-state")) qs("#semantic-index-state").textContent = "服务未连接";
+      showAgentUnavailable("本地服务未连接");
+      showToolsUnavailable("本地服务未连接");
     }
   }
 
@@ -127,6 +133,8 @@
       await refreshCredentialStatus();
       await loadSemanticStatus();
       await loadLibraryDocuments({ quiet: true });
+      await loadAgentData({ quiet: true });
+      await loadTools({ quiet: true });
     } catch {
       setServiceStatus(false);
       showLibraryOffline("本地服务暂不可用", "恢复服务后可重试读取资料库。");
@@ -1286,14 +1294,206 @@
     refreshIcons();
   }
 
-  function appendAgentTask(task) {
+  const activeAgentStatuses = new Set(["queued", "handoff_pending", "handoff_requested"]);
+  const agentStatusPresentation = {
+    queued: { label: "等待交接", icon: "list-todo", tone: "neutral" },
+    handoff_pending: { label: "正在请求交接", icon: "loader-circle", tone: "warning" },
+    handoff_requested: { label: "已请求交接", icon: "external-link", tone: "success" },
+    handoff_failed: { label: "交接失败", icon: "circle-alert", tone: "warning" },
+    completed: { label: "已完成", icon: "check", tone: "success" }
+  };
+
+  const toolPresentation = {
+    "nexus-core": { name: "AI-PC 本地底座", icon: "database", detail: "SQLite / FTS / Qdrant、FSRS、科研记录、凭据与审计" },
+    vscode: { name: "Visual Studio Code", icon: "code-2", detail: "隔离源码工作区的图形开发环境" },
+    cline: { name: "Cline", icon: "square-terminal", detail: "当前编程任务的显式交接执行器" },
+    deeptutor: { name: "DeepTutor", icon: "graduation-cap", detail: "教学、出题与深度研究；安全凭据适配器待接入" },
+    "codex-cli": { name: "Codex CLI", icon: "terminal", detail: "独立 CODEX_HOME 的备用编程执行器" },
+    obsidian: { name: "Obsidian", icon: "notebook-pen", detail: "Markdown 知识库；Vault 已纳入资料索引白名单" },
+    zotero: { name: "Zotero", icon: "library", detail: "科研文献管理；自动同步适配器待接入" },
+    paperqa2: { name: "PaperQA2", icon: "file-search", detail: "带引用的论文问答增强候选" },
+    openadapt: { name: "OpenAdapt", icon: "mouse-pointer-2", detail: "受审批的电脑操作增强候选" }
+  };
+
+  function setAgentRuntimeState(runtime) {
+    agentRuntime = runtime;
+    const stateLabel = qs("#agent-runtime-state");
+    const modeLabel = qs("#agent-queue-mode");
+    if (!runtime?.available) {
+      let detail = "交接工具不可用";
+      if (runtime?.workspace_exists && !runtime?.workspace_approved) detail = "工作区未获批准";
+      else if (runtime && !runtime.workspace_exists) detail = "隔离工作区缺失";
+      else if (runtime && !runtime.vscode_available) detail = "VS Code 未检测到";
+      else if (runtime && !runtime.cline_available) detail = "Cline 未检测到";
+      if (stateLabel) { stateLabel.textContent = detail; stateLabel.className = "status-label is-warning"; }
+      if (modeLabel) { modeLabel.textContent = "仅记录任务"; modeLabel.className = "status-label is-neutral"; }
+    } else {
+      if (stateLabel) { stateLabel.textContent = `Cline ${runtime.cline_version || "可用"}`; stateLabel.className = "status-label is-success"; }
+      if (modeLabel) { modeLabel.textContent = "显式交接"; modeLabel.className = "status-label is-success"; }
+    }
+    renderAgentTasks();
+  }
+
+  function showAgentUnavailable(message = "Agent 状态不可用") {
+    agentRuntime = null;
+    const stateLabel = qs("#agent-runtime-state");
+    const modeLabel = qs("#agent-queue-mode");
+    if (stateLabel) { stateLabel.textContent = message; stateLabel.className = "status-label is-danger"; }
+    if (modeLabel) { modeLabel.textContent = "仅记录任务"; modeLabel.className = "status-label is-neutral"; }
+    renderAgentTasks();
+  }
+
+  function agentTaskMeta(task) {
+    const options = [];
+    if (Number(task.run_tests)) options.push("测试");
+    if (Number(task.generate_summary)) options.push("变更说明");
+    if (Number(task.allow_dependencies)) options.push("可提议依赖");
+    const time = task.handoff_requested_at || task.created_at;
+    return `${task.project} · ${formatLearningDateTime(time)}${options.length ? ` · ${options.join(" / ")}` : ""}`;
+  }
+
+  function renderAgentTasks() {
     const list = qs("#agent-task-list");
     if (!list) return;
-    qs("#agent-task-empty", list)?.remove();
-    const item = document.createElement("article");
-    item.innerHTML = `<div class="task-state neutral"><i data-lucide="database" aria-hidden="true"></i></div><div><strong>${escapeHtml(task)}</strong><span>刚记录到 SQLite · 当前不会自动执行</span></div>`;
-    list.prepend(item);
+    if (qs("#agent-task-total")) qs("#agent-task-total").textContent = `${agentTasks.length} 个`;
+    if (!agentTasks.length) {
+      list.innerHTML = '<div class="learning-empty" id="agent-task-empty"><i data-lucide="inbox" aria-hidden="true"></i><div><strong>还没有任务记录</strong><span>新任务会先进入本地队列，再由你决定何时交给 Cline。</span></div></div>';
+      refreshIcons();
+      return;
+    }
+    list.innerHTML = agentTasks.map((task) => {
+      const presentation = agentStatusPresentation[task.status] || agentStatusPresentation.queued;
+      const canHandoff = task.status === "queued" && agentRuntime?.available === true;
+      const action = task.status === "queued"
+        ? `<button class="secondary-button agent-task-action" type="button" data-agent-handoff="${Number(task.id)}" ${canHandoff ? "" : "disabled"}><i data-lucide="external-link" aria-hidden="true"></i><span>${canHandoff ? "交给 Cline" : "暂不可交接"}</span></button>`
+        : `<span class="status-label ${presentation.tone === "success" ? "is-success" : presentation.tone === "warning" ? "is-warning" : "is-neutral"}">${presentation.label}</span>`;
+      const error = task.status === "handoff_failed" && task.last_error ? " · 可查看审计记录" : "";
+      return `<article><div class="task-state ${presentation.tone}"><i data-lucide="${presentation.icon}" aria-hidden="true"></i></div><div class="agent-task-meta"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(agentTaskMeta(task) + error)}</span></div>${action}</article>`;
+    }).join("");
     refreshIcons();
+  }
+
+  async function loadAgentStatus({ quiet = false } = {}) {
+    if (!backendConnected) {
+      showAgentUnavailable("本地服务未连接");
+      return false;
+    }
+    try {
+      const runtime = await apiFetch("/agent/status");
+      setAgentRuntimeState(runtime || null);
+      return runtime?.available === true;
+    } catch (error) {
+      showAgentUnavailable("Agent 状态读取失败");
+      if (!quiet) toast(`Agent 状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function loadAgentTasks({ quiet = false } = {}) {
+    if (!backendConnected) {
+      renderAgentTasks();
+      return false;
+    }
+    try {
+      const tasks = await apiFetch("/agent/tasks");
+      agentTasks = Array.isArray(tasks) ? tasks : [];
+      state.agentCount = agentTasks.filter((task) => activeAgentStatuses.has(task.status)).length;
+      updateCounters();
+      renderAgentTasks();
+      return true;
+    } catch (error) {
+      if (!quiet) toast(`任务队列读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function loadAgentData({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) {
+      showAgentUnavailable("本地服务未连接");
+      return false;
+    }
+    const [runtimeLoaded, tasksLoaded] = await Promise.all([
+      loadAgentStatus({ quiet }),
+      loadAgentTasks({ quiet })
+    ]);
+    return runtimeLoaded || tasksLoaded;
+  }
+
+  async function handoffAgentTask(taskId, button) {
+    const task = agentTasks.find((item) => Number(item.id) === Number(taskId));
+    if (!task || task.status !== "queued") return;
+    if (!agentRuntime?.available) {
+      toast("VS Code、Cline 或隔离工作区当前不可用", "circle-alert");
+      return;
+    }
+    const confirmed = window.confirm(`将任务 #${task.id} 交给 Cline，并打开隔离源码工作区。是否继续？`);
+    if (!confirmed) return;
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>正在交接</span>';
+    refreshIcons();
+    try {
+      const result = await apiFetch(`/agent/tasks/${task.id}/handoff`, {
+        method: "POST",
+        headers: { "X-AI-PC-Action": "agent-handoff" }
+      });
+      const index = agentTasks.findIndex((item) => Number(item.id) === Number(task.id));
+      if (index >= 0 && result?.task) agentTasks[index] = result.task;
+      renderAgentTasks();
+      toast("交接请求已发送，后续操作仍由 Cline 逐步确认", "external-link");
+    } catch (error) {
+      await loadAgentTasks({ quiet: true });
+      toast(`任务未能交接：${error.message}`, "circle-alert");
+    }
+  }
+
+  function showToolsUnavailable(message = "工具状态不可用") {
+    const list = qs("#tool-registry-list");
+    if (!list) return;
+    list.innerHTML = `<div class="tool-registry-empty"><i data-lucide="wifi-off" aria-hidden="true"></i><span>${escapeHtml(message)}</span></div>`;
+    refreshIcons();
+  }
+
+  function renderTools() {
+    const list = qs("#tool-registry-list");
+    if (!list) return;
+    if (!toolRegistry.length) {
+      showToolsUnavailable("尚未读取本机工具状态");
+      return;
+    }
+    const statusLabel = { ready: "已接入", installed: "已安装", planned: "候选", unavailable: "未检测到" };
+    const integrationLabel = {
+      active: "由 Dashboard 使用",
+      adapter_pending: "安全适配器待接入",
+      isolated_manual: "隔离配置，暂手动使用",
+      vault_pending: "Vault 待配置",
+      planned: "后续评估",
+      missing: "未安装"
+    };
+    list.innerHTML = toolRegistry.map((tool) => {
+      const presentation = toolPresentation[tool.id] || { name: tool.name, icon: "box", detail: tool.category || "外部能力" };
+      const readyClass = tool.status === "ready" ? "is-ready" : tool.status === "installed" ? "is-installed" : "";
+      const labelClass = tool.status === "ready" ? "is-success" : tool.status === "unavailable" ? "is-danger" : tool.status === "planned" ? "is-warning" : "is-neutral";
+      const version = tool.version ? `v${tool.version}` : integrationLabel[tool.integration] || "";
+      return `<article class="tool-registry-item"><div class="tool-registry-icon ${readyClass}"><i data-lucide="${presentation.icon}" aria-hidden="true"></i></div><div class="tool-registry-main"><strong>${escapeHtml(presentation.name)}</strong><span>${escapeHtml(presentation.detail)}</span></div><div class="tool-registry-side"><span class="status-label ${labelClass}">${statusLabel[tool.status] || tool.status}</span><small>${escapeHtml(version)}</small></div></article>`;
+    }).join("");
+    refreshIcons();
+  }
+
+  async function loadTools({ quiet = false } = {}) {
+    if (!backendConnected) {
+      showToolsUnavailable("本地服务未连接");
+      return false;
+    }
+    try {
+      const payload = await apiFetch("/tools");
+      toolRegistry = Array.isArray(payload?.tools) ? payload.tools : [];
+      renderTools();
+      return true;
+    } catch (error) {
+      showToolsUnavailable("工具状态读取失败");
+      if (!quiet) toast(`工具状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
   }
 
   function bindEvents() {
@@ -1415,6 +1615,16 @@
     });
     qs("#save-note")?.addEventListener("click", saveResearchNote);
 
+    qs("#refresh-agent")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      await loadAgentData();
+      button.disabled = false;
+    });
+    qs("#agent-task-list")?.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-agent-handoff]");
+      if (button) handoffAgentTask(button.dataset.agentHandoff, button);
+    });
     qs("#agent-form")?.addEventListener("submit", async (event) => {
       event.preventDefault();
       const input = qs("#agent-task");
@@ -1426,22 +1636,38 @@
         return;
       }
       try {
-        await apiFetch("/agent/tasks", { method: "POST", body: JSON.stringify({ project: qs("#agent-project")?.value || "Dashboard", title }) });
-      } catch {
-        toast("任务未写入 SQLite，请恢复服务后重试", "circle-alert");
+        const task = await apiFetch("/agent/tasks", {
+          method: "POST",
+          body: JSON.stringify({
+            project: qs("#agent-project")?.value || "AI-PC Dashboard",
+            title,
+            run_tests: qs("#agent-run-tests")?.checked === true,
+            generate_summary: qs("#agent-generate-summary")?.checked === true,
+            allow_dependencies: qs("#agent-allow-dependencies")?.checked === true
+          })
+        });
+        agentTasks = [task, ...agentTasks.filter((item) => Number(item.id) !== Number(task.id))];
+      } catch (error) {
+        toast(`任务未写入 SQLite：${error.message}`, "circle-alert");
         return;
       }
-      appendAgentTask(title);
-      state.agentCount += 1;
+      state.agentCount = agentTasks.filter((task) => activeAgentStatuses.has(task.status)).length;
       updateCounters();
+      renderAgentTasks();
       saveState();
-      toast("任务已记录到本地队列；当前不会自动执行", "database");
+      toast("任务已记录到本地队列，等待你确认交接", "database");
       input.value = "";
     });
     qsa(".automation-item .switch input").forEach((input) => input.addEventListener("change", () => toast(input.checked ? "流程已启用" : "流程已暂停", input.checked ? "play-circle" : "pause-circle")));
     qs("#new-automation")?.addEventListener("click", () => toast("创建流程向导将在后端服务接入后开放", "workflow"));
 
     qs("#provider-select")?.addEventListener("change", refreshCredentialStatus);
+    qs("#refresh-tools")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      await loadTools();
+      button.disabled = false;
+    });
     qs("#test-provider")?.addEventListener("click", saveCredential);
     qs("#save-settings")?.addEventListener("click", async () => {
       state.provider = qs("#provider-select")?.value || state.provider;

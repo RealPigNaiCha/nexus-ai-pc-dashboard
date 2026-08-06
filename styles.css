@@ -451,6 +451,8 @@ select { padding-right: 26px; }
 .agent-task-list strong, .agent-task-list span { display: block; }
 .agent-task-list strong { font-size: 12px; font-weight: 500; }
 .agent-task-list span { margin-top: 2px; color: var(--muted); font-size: 10px; }
+.agent-task-list .agent-task-action { min-width: 104px; justify-content: center; }
+.agent-task-list .agent-task-meta { overflow-wrap: anywhere; }
 .task-state { display: grid; place-items: center; width: 29px; height: 29px; border-radius: 5px; }
 .task-state svg { width: 15px; height: 15px; }
 .task-state.success { color: var(--primary); background: var(--primary-soft); }
@@ -491,6 +493,20 @@ select { padding-right: 26px; }
 .secret-field input, .path-field input { min-width: 0; flex: 1; }
 .secret-field .icon-button { flex: 0 0 37px; }
 .field-action { display: flex; align-items: center; gap: 10px; align-self: end; color: var(--muted); font-size: 11px; }
+.tool-registry-list { display: grid; }
+.tool-registry-item { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 66px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.tool-registry-item:last-child { border-bottom: 0; }
+.tool-registry-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 5px; background: var(--surface-soft); color: var(--muted); }
+.tool-registry-icon.is-ready { background: var(--primary-soft); color: var(--primary); }
+.tool-registry-icon.is-installed { background: var(--blue-soft); color: var(--blue); }
+.tool-registry-main { min-width: 0; }
+.tool-registry-main strong, .tool-registry-main span { display: block; }
+.tool-registry-main strong { font-size: 12px; font-weight: 500; }
+.tool-registry-main span { margin-top: 3px; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.tool-registry-side { display: grid; justify-items: end; gap: 5px; }
+.tool-registry-side small { color: var(--subtle); font-size: 9px; }
+.tool-registry-empty { display: flex; align-items: center; gap: 8px; min-height: 58px; color: var(--muted); font-size: 11px; }
+.tool-registry-empty svg { width: 16px; height: 16px; }
 .toggle-list { display: grid; gap: 0; }
 .toggle-list label { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 57px; border-bottom: 1px solid var(--border); }
 .toggle-list label:last-child { border-bottom: 0; }
@@ -606,6 +622,10 @@ select { padding-right: 26px; }
   .library-search-mode button { flex: 1 1 0; }
   .agent-options { align-items: flex-start; flex-direction: column; gap: 9px; }
   .agent-options .primary-button { width: 100%; margin-left: 0; }
+  .agent-task-list article { grid-template-columns: 31px minmax(0, 1fr); }
+  .agent-task-list .agent-task-action { grid-column: 2; width: 100%; }
+  .tool-registry-item { grid-template-columns: 34px minmax(0, 1fr); }
+  .tool-registry-side { grid-column: 2; justify-items: start; }
   .app-dialog { width: calc(100% - 20px); }
   .dialog-shell { padding: 17px; }
   .dialog-shell > footer { align-items: flex-end; flex-direction: column; }
