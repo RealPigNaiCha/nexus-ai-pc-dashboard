@@ -1,5 +1,6 @@
 param(
-    [switch]$NoBrowser
+    [switch]$NoBrowser,
+    [switch]$WithChat
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,4 +43,9 @@ if (-not (Test-Dashboard)) {
 
 if (-not $NoBrowser) {
     Start-Process $baseUri
+}
+
+if ($WithChat) {
+    $nextChatScript = Join-Path $projectRoot "start-nextchat.ps1"
+    & $nextChatScript -NoBrowser:$NoBrowser
 }

@@ -1,6 +1,6 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一 AI 对话（先检索本地资料与学习进度，再生成带引用回答）、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。定时资料监听、自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一 AI 对话（先检索本地资料与学习进度，再生成带引用回答）、NextChat 多轮对话（OpenAI 兼容流式接口）、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。定时资料监听、自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
 
@@ -256,6 +256,27 @@ Invoke-RestMethod `
   -Body $body
 ```
 
+### 5.6 多轮对话（NextChat）
+
+多轮对话直接复用开源的 [NextChat](https://github.com/ChatGPTNextWeb/NextChat)（MIT License，聊天记录默认保存在浏览器本地，不新增数据库）。NextChat 作为独立的前端服务运行在 `http://127.0.0.1:3000`，通过 OpenAI 兼容端点访问本项目后端，模型密钥仍然只在本机服务调用瞬间从 Windows Credential Manager 读取，不会写入 NextChat 的浏览器存储。
+
+快速启动：
+
+```powershell
+Set-Location 'C:\AI-PC\app\dashboard'
+.\start.ps1 -NoBrowser       # 先确保 Dashboard（8765）在运行
+.\start-nextchat.ps1         # 再启动 NextChat（3000）并打开浏览器
+```
+
+也可以用一条命令同时启动：`.\start.ps1 -WithChat`。停止使用 `.\stop-nextchat.ps1`。
+
+后端新增的兼容接口：
+
+- `GET /v1/models`：返回当前可用的 `reasoning` / `fast` 角色与实际模型名。
+- `POST /v1/chat/completions`：接受标准 `messages[]`、`model`、`stream`、`max_tokens`、`temperature`；支持流式 SSE。最近一条用户消息会先检索本地资料与学习进度，多轮历史拼入提示词，回答末尾附带本地资料引用列表。
+
+每次调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`）。NextChat 源码与构建产物位于 `C:\AI-PC\tools\nextchat`，正式环境需要 Node.js LTS；当前部署脚本会优先使用系统 `node`，找不到时回退到 Codex 自带运行时。
+
 ## 6. API 密钥与 Windows Credential Manager
 
 密钥接口已经接入 Windows Credential Manager，并验证使用 `keyring.backends.Windows.WinVaultKeyring`。密钥服务名固定为 `Nexus AI-PC API Credentials v1`，支持以下规范服务商 ID：
@@ -473,7 +494,7 @@ uv run pytest
 & '.\.venv\Scripts\python.exe' -c "import sqlite3; c=sqlite3.connect(r'C:\AI-PC\data\database\ai-pc.sqlite3'); print(c.execute('PRAGMA quick_check').fetchone()[0]); c.close()"
 ```
 
-2026-08-07 工作区完整测试为 `135 passed`（含统一 AI 对话测试）；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
+2026-08-08 工作区完整测试为 `140 passed`（含统一 AI 对话与 OpenAI 兼容多轮对话测试）；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
 
 ## 11. 常见问题
 
@@ -501,6 +522,7 @@ uv run pytest
 - `/api/paperqa/status`、`/api/paperqa/index`、`/api/paperqa/ask`
 - `/api/deeptutor/status`、`/api/deeptutor/run`
 - `/api/chat/ask`
+- `/v1/chat/completions`、`/v1/models`
 - `/api/tools`、`/api/agent/status`
 - `/api/agent/tasks`、`/api/agent/tasks/{id}/handoff`
 - `/api/settings`、`/api/audit`

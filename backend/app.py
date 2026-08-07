@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -11,11 +12,13 @@ from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal, Sequence
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr
 
@@ -197,6 +200,19 @@ class ChatAskRequest(StrictModel):
     course_id: int | None = Field(default=None, gt=0)
     max_tokens: int = Field(default=1024, ge=1, le=8192)
     temperature: float = Field(default=0.2, ge=0, le=2)
+
+
+class OpenAIChatMessage(StrictModel):
+    role: str = Field(min_length=1, max_length=32)
+    content: str | list[dict[str, object]] = Field(default="")
+
+
+class OpenAIChatRequest(StrictModel):
+    model: str = Field(default="reasoning", min_length=1, max_length=200)
+    messages: list[OpenAIChatMessage] = Field(min_length=1, max_length=200)
+    stream: bool = False
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    temperature: float | None = Field(default=None, ge=0, le=2)
 
 
 class BrowserActionCreate(StrictModel):
@@ -420,6 +436,15 @@ def create_app(
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+        ],
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     @app.exception_handler(RequestValidationError)
@@ -1292,6 +1317,79 @@ def create_app(
             },
         }
 
+    def require_chat_role(
+        database: Database,
+        role: str,
+        *,
+        operation: str,
+        source: str,
+        category: str,
+        action: str,
+    ) -> tuple[str, dict[str, str]]:
+        roles = {item["role"]: item for item in database.get_model_roles()}
+        config = roles.get(role)
+        canonical = (
+            normalize_provider(config["provider"])
+            if config and config.get("provider")
+            else None
+        )
+        if not config or not config.get("model") or canonical is None:
+            database.record_model_call(
+                provider=canonical or "unconfigured",
+                operation=operation,
+                source=source,
+                duration_ms=0,
+                status="error",
+                error_code="role_not_configured",
+                role=role,
+            )
+            database.audit(category, action, role, result="role_not_configured")
+            raise HTTPException(status_code=409, detail="Model role is not configured")
+        return canonical, config
+
+    def openai_content_to_text(content: object) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+            return "".join(parts)
+        return ""
+
+    def openai_conversation_prompt(
+        messages: list[dict[str, object]],
+    ) -> tuple[str, str]:
+        history: list[str] = []
+        extra_system: list[str] = []
+        for message in messages:
+            role = str(message.get("role") or "")
+            text = openai_content_to_text(message.get("content") or "").strip()
+            if role not in {"system", "user", "assistant"}:
+                continue
+            if not text:
+                continue
+            if role == "system":
+                extra_system.append(text)
+                continue
+            label = "用户" if role == "user" else "助手"
+            history.append(f"{label}：{text}")
+        conversation = "\n\n".join(history)
+        return conversation, "\n".join(extra_system).strip()
+
+    def openai_requested_role(database: Database, requested_model: str) -> str:
+        model = requested_model.strip()
+        roles = {item["role"]: item for item in database.get_model_roles()}
+        if model in roles:
+            return model
+        for role, config in roles.items():
+            if config.get("model") == model:
+                return role
+        return "reasoning"
+
     def chat_context(
         request: Request,
         question: str,
@@ -1444,25 +1542,14 @@ def create_app(
         if role not in {"reasoning", "fast"}:
             raise HTTPException(status_code=422, detail="Chat supports only reasoning and fast roles")
         database = db(request)
-        roles = {item["role"]: item for item in database.get_model_roles()}
-        config = roles.get(role)
-        canonical = (
-            normalize_provider(config["provider"])
-            if config and config.get("provider")
-            else None
+        canonical, config = require_chat_role(
+            database,
+            role,
+            operation="chat",
+            source="dashboard_chat",
+            category="chat",
+            action="ask",
         )
-        if not config or not config.get("model") or canonical is None:
-            database.record_model_call(
-                provider=canonical or "unconfigured",
-                operation="chat",
-                source="dashboard_chat",
-                duration_ms=0,
-                status="error",
-                error_code="role_not_configured",
-                role=role,
-            )
-            database.audit("chat", "ask", role, result="role_not_configured")
-            raise HTTPException(status_code=409, detail="Model role is not configured")
 
         question = payload.question.strip()
         evidence, learning_state, semantic_degraded = chat_context(
@@ -1549,6 +1636,248 @@ def create_app(
             "learning_state": learning_state,
             "semantic_degraded": semantic_degraded,
         }
+
+    @app.post("/v1/chat/completions")
+    async def openai_chat_completions(
+        payload: OpenAIChatRequest,
+        request: Request,
+    ):
+        database = db(request)
+        normalized: list[dict[str, object]] = []
+        for message in payload.messages:
+            role = message.role.strip()
+            if role not in {"system", "user", "assistant"}:
+                raise HTTPException(status_code=422, detail="Unsupported message role")
+            content = openai_content_to_text(message.content)
+            if len(content) > 100_000:
+                raise HTTPException(status_code=422, detail="Message content is too long")
+            if role != "system" and not content.strip():
+                raise HTTPException(status_code=422, detail="Message content must not be empty")
+            normalized.append({"role": role, "content": content.strip()})
+
+        latest_user = next(
+            (
+                str(item["content"])
+                for item in reversed(normalized)
+                if item["role"] == "user" and str(item["content"]).strip()
+            ),
+            "",
+        )
+        if not latest_user:
+            raise HTTPException(
+                status_code=422,
+                detail="At least one user message is required",
+            )
+
+        conversation, extra_system = openai_conversation_prompt(normalized)
+        role = openai_requested_role(database, payload.model)
+        if role not in {"reasoning", "fast"}:
+            role = "reasoning"
+        canonical, config = require_chat_role(
+            database,
+            role,
+            operation="openai_compat_chat",
+            source="nextchat",
+            category="chat",
+            action="openai_completions",
+        )
+
+        evidence, learning_state, semantic_degraded = chat_context(
+            request,
+            latest_user,
+            "all",
+            None,
+        )
+        system = chat_system_prompt(evidence, learning_state, "all")
+        if extra_system:
+            system = f"{system}\n\n【用户附加要求】\n{extra_system}"
+        if conversation:
+            prompt = (
+                "以下是本次对话的完整多轮记录（按时间顺序）：\n\n"
+                f"{conversation}\n\n请针对最后一条用户消息继续回答。"
+            )
+        else:
+            prompt = latest_user
+
+        max_tokens = payload.max_tokens or 1024
+        temperature = payload.temperature if payload.temperature is not None else 0.2
+        try:
+            result = await request.app.state.model_gateway.generate(
+                provider=canonical,
+                endpoint=config["endpoint"],
+                model=config["model"],
+                prompt=prompt,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                role=role,
+            )
+        except ModelRequestCancelled as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="openai_compat_chat",
+                source="nextchat",
+                duration_ms=error.duration_ms,
+                status="cancelled",
+                error_code="cancelled",
+                role=role,
+            )
+            database.audit("chat", "openai_completions", role, result="cancelled")
+            raise asyncio.CancelledError from None
+        except CredentialStorageError:
+            database.record_model_call(
+                provider=canonical,
+                operation="openai_compat_chat",
+                source="nextchat",
+                duration_ms=0,
+                status="error",
+                error_code="credential_store_unavailable",
+                role=role,
+            )
+            database.audit(
+                "chat",
+                "openai_completions",
+                role,
+                result="credential_store_unavailable",
+            )
+            raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
+        except ModelGatewayError as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="openai_compat_chat",
+                source="nextchat",
+                duration_ms=error.duration_ms,
+                status="error",
+                error_code=error.code,
+                role=role,
+            )
+            database.audit("chat", "openai_completions", role, result=error.code)
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+        database.record_model_call(
+            provider=result.provider,
+            operation="openai_compat_chat",
+            source="nextchat",
+            duration_ms=result.latency_ms,
+            status="success",
+            model=result.model,
+            role=result.role,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+        )
+        database.audit("chat", "openai_completions", role)
+
+        completion_id = f"chatcmpl-{uuid4().hex}"
+        created = int(datetime.now(timezone.utc).timestamp())
+
+        def build_evidence_footer(evidence_items: list[dict[str, object]]) -> str:
+            if not evidence_items:
+                return ""
+            lines = ["", "---", "**本地资料引用**"]
+            for index, item in enumerate(evidence_items, start=1):
+                title = str(item.get("title") or "未命名资料")
+                source = str(item.get("source_path") or "")
+                page = item.get("page")
+                paragraph = item.get("paragraph")
+                location = (
+                    f"第 {page} 页"
+                    if page is not None
+                    else f"第 {paragraph} 段"
+                    if paragraph is not None
+                    else ""
+                )
+                suffix = f"（{location}）" if location else ""
+                lines.append(f"[{index}]《{title}》{source}{suffix}")
+            return "\n".join(lines)
+
+        footer = build_evidence_footer(evidence)
+        answer = result.content + footer
+
+        def sse_payload(chunk_payload: dict[str, object]) -> str:
+            return f"data: {json.dumps(chunk_payload, ensure_ascii=False)}\n\n"
+
+        if payload.stream:
+
+            async def event_stream() -> object:
+                chunk_size = 96
+                for index in range(0, len(answer), chunk_size):
+                    yield sse_payload(
+                        {
+                            "id": completion_id,
+                            "object": "chat.completion.chunk",
+                            "created": created,
+                            "model": result.model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {"content": answer[index : index + chunk_size]},
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    )
+                yield sse_payload(
+                    {
+                        "id": completion_id,
+                        "object": "chat.completion.chunk",
+                        "created": created,
+                        "model": result.model,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                    }
+                )
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                event_stream(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+
+        return {
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": result.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": answer},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.total_tokens,
+            },
+            "semantic_degraded": semantic_degraded,
+        }
+
+    @app.get("/v1/models")
+    def openai_list_models(request: Request) -> dict[str, object]:
+        roles = db(request).get_model_roles()
+        data: list[dict[str, object]] = []
+        for item in roles:
+            if item["role"] not in {"reasoning", "fast"} or not item.get("model"):
+                continue
+            data.append(
+                {
+                    "id": item["role"],
+                    "object": "model",
+                    "created": int(datetime.now(timezone.utc).timestamp()),
+                    "owned_by": item.get("provider") or "local",
+                }
+            )
+            data.append(
+                {
+                    "id": item["model"],
+                    "object": "model",
+                    "created": int(datetime.now(timezone.utc).timestamp()),
+                    "owned_by": item.get("provider") or "local",
+                }
+            )
+        return {"object": "list", "data": data}
 
     @app.get("/api/research/projects")
     def list_projects(request: Request) -> list[dict]:
