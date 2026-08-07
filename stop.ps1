@@ -9,7 +9,7 @@ if (-not $connections) {
 $ownerPids = $connections | Select-Object -ExpandProperty OwningProcess -Unique
 foreach ($ownerPid in $ownerPids) {
     $process = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid"
-    if (-not $process -or $process.CommandLine -notmatch "uvicorn\s+backend\.app:app") {
+    if (-not $process -or $process.CommandLine -notmatch "uvicorn" -or $process.CommandLine -notmatch "backend\.app:app") {
         throw "Port 8765 is owned by another process. Refusing to stop PID $ownerPid."
     }
     Stop-Process -Id $ownerPid

@@ -16,6 +16,19 @@
     importedFiles: [],
     projects: []
   };
+  const providerDefaultEndpoints = {
+    OpenAI: "https://api.openai.com/v1",
+    Anthropic: "https://api.anthropic.com/v1",
+    "Google Gemini": "https://generativelanguage.googleapis.com/v1beta",
+    DeepSeek: "https://api.deepseek.com",
+    "阿里云百炼": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  };
+  const roleLabels = {
+    reasoning: "深度推理",
+    fast: "快速任务",
+    vision: "视觉理解",
+    embedding: "文本向量"
+  };
 
   let state = loadState();
   let backendConnected = false;
@@ -36,6 +49,7 @@
   let agentTasks = [];
   let agentRuntime = null;
   let toolRegistry = [];
+  let paperqaStatus = null;
 
   async function apiFetch(path, options = {}) {
     if (window.location.protocol === "file:") return null;
@@ -84,6 +98,9 @@
       setCredentialStatus(false, "本地服务未连接，无法读取凭据状态");
       showLearningUnavailable("本地服务未连接", "启动本地服务后可创建课程、记录答题并计算复习时间。");
       clearResearchProject("本地服务未连接");
+      setPaperQAUnavailable("本地服务未连接");
+      renderOverviewTasksUnavailable();
+      renderOverviewActivityUnavailable();
       if (qs("#semantic-index-state")) qs("#semantic-index-state").textContent = "服务未连接";
       showAgentUnavailable("本地服务未连接");
       showToolsUnavailable("本地服务未连接");
@@ -129,12 +146,23 @@
         if (qs("#data-path") && state.dataPath) qs("#data-path").value = state.dataPath;
       }
       await loadLearningDashboard({ quiet: true });
+      await loadCoachReport({ quiet: true });
+      await loadCoachPlan({ quiet: true });
+      await loadDeepTutorStatus({ quiet: true });
       await loadResearchProjects({ quiet: true });
       await refreshCredentialStatus();
+      await loadModelRoles({ quiet: true });
+      await loadPaperQAStatus({ quiet: true });
+      await loadZoteroStatus({ quiet: true });
+      await loadOpsStatus({ quiet: true });
+      await loadBrowserStatus({ quiet: true });
+      await loadBrowserActions({ quiet: true });
       await loadSemanticStatus();
       await loadLibraryDocuments({ quiet: true });
       await loadAgentData({ quiet: true });
       await loadTools({ quiet: true });
+      await loadOverviewActivity({ quiet: true });
+      renderOverviewTasks();
     } catch {
       setServiceStatus(false);
       showLibraryOffline("本地服务暂不可用", "恢复服务后可重试读取资料库。");
@@ -381,7 +409,134 @@
       attemptState.className = `status-label ${concepts.length ? "is-success" : "is-neutral"}`;
     }
     setLearningControls(true, courses, concepts);
+    renderOverviewTasks();
     refreshIcons();
+  }
+
+  const auditCategoryLabels = {
+    library: "资料库", learning: "学习", research: "科研", agent: "编程",
+    models: "模型", paperqa: "论文问答", zotero: "Zotero", ops: "运维",
+    credentials: "凭据", browser: "浏览器", settings: "设置"
+  };
+  const auditActionLabels = {
+    "library.import": "资料导入",
+    "library.index_document": "资料索引",
+    "library.reuse_document": "复用资料",
+    "learning.create_course": "创建课程",
+    "learning.create_concept": "添加知识点",
+    "learning.attempt": "记录答题",
+    "research.create_project": "新建科研项目",
+    "research.search": "文献检索",
+    "research.screening": "更新筛选",
+    "agent.create": "记录任务",
+    "agent.handoff": "请求交接",
+    "models.test": "模型连接测试",
+    "models.generate": "模型生成",
+    "paperqa.index": "建立论文索引",
+    "paperqa.ask": "论文问答",
+    "zotero.sync": "Zotero 同步",
+    "ops.backup": "在线备份",
+    "ops.backup_settings": "更新备份设置",
+    "ops.backup_prune": "清理旧备份",
+    "deeptutor.run": "DeepTutor 调用",
+    "credentials.set": "保存凭据",
+    "credentials.delete": "删除凭据",
+    "browser.action": "浏览器动作",
+    "settings.update": "更新设置"
+  };
+
+  function auditActionLabel(category, action) {
+    return auditActionLabels[`${category}.${action}`] || `${auditCategoryLabels[category] || category} · ${action}`;
+  }
+
+  function auditResultLabel(result) {
+    if (result === "success") return '<span class="status-label is-success">完成</span>';
+    if (result === "error" || result === "cancelled") return '<span class="status-label is-danger">异常</span>';
+    if (result === "path_forbidden" || result === "role_not_configured") return '<span class="status-label is-warning">被拒绝</span>';
+    return '<span class="status-label is-neutral">已记录</span>';
+  }
+
+  function renderOverviewTasksUnavailable() {
+    const list = qs("#overview-task-list");
+    if (list) list.innerHTML = '<li class="overview-task-empty">服务未连接，无法汇总任务。</li>';
+    const state = qs("#overview-tasks-state");
+    if (state) { state.textContent = "不可用"; state.className = "status-label is-danger"; }
+  }
+
+  function renderOverviewTasks() {
+    const list = qs("#overview-task-list");
+    const state = qs("#overview-tasks-state");
+    if (!list) return;
+    const items = [];
+    const dueReviews = Array.isArray(learningDashboard?.due_reviews) ? learningDashboard.due_reviews : [];
+    dueReviews.slice(0, 5).forEach((concept) => {
+      items.push({
+        icon: "calendar-clock",
+        strong: `复习「${concept.name}」`,
+        span: `学习 · ${formatLearningDateTime(concept.due_at)}`,
+        go: "learning"
+      });
+    });
+    agentTasks.filter((task) => activeAgentStatuses.has(task.status)).slice(0, 5).forEach((task) => {
+      const presentation = agentStatusPresentation[task.status] || { label: task.status, icon: "list-todo" };
+      items.push({
+        icon: presentation.icon,
+        strong: task.title,
+        span: `编程 Agent · ${presentation.label}`,
+        go: "coding"
+      });
+    });
+    if (!items.length) {
+      list.innerHTML = '<li class="overview-task-empty">今天没有到期复习或待交接任务。</li>';
+      if (state) { state.textContent = "暂无任务"; state.className = "status-label is-neutral"; }
+      return;
+    }
+    list.innerHTML = items.map((item) => (
+      `<li class="overview-task" data-go="${item.go}"><span class="lesson-index"><i data-lucide="${item.icon}" aria-hidden="true"></i></span><div><strong>${escapeHtml(item.strong)}</strong><span>${escapeHtml(item.span)}</span></div></li>`
+    )).join("");
+    if (state) { state.textContent = `${items.length} 项`; state.className = "status-label is-warning"; }
+    refreshIcons();
+  }
+
+  function renderOverviewActivity(events) {
+    const body = qs("#overview-activity-body");
+    if (!body) return;
+    if (!events.length) {
+      body.innerHTML = '<tr><td colspan="4"><span class="status-label is-neutral">暂无记录</span></td></tr>';
+      return;
+    }
+    body.innerHTML = events.map((event) => {
+      let target = "";
+      if (event.target) {
+        if (event.category === "paperqa" && event.action === "ask") {
+          target = ` · ${event.target === "fast" ? "快速任务" : "深度推理"}`;
+        } else {
+          target = ` · ${escapeHtml(String(event.target).slice(0, 48))}`;
+        }
+      }
+      return `<tr><td>${escapeHtml(formatLearningDateTime(event.created_at))}</td><td>${escapeHtml(auditActionLabel(event.category, event.action))}${target}</td><td>${escapeHtml(auditCategoryLabels[event.category] || event.category)}</td><td>${auditResultLabel(event.result)}</td></tr>`;
+    }).join("");
+  }
+
+  function renderOverviewActivityUnavailable() {
+    const body = qs("#overview-activity-body");
+    if (body) body.innerHTML = '<tr><td colspan="4"><span class="status-label is-danger">服务未连接</span></td></tr>';
+  }
+
+  async function loadOverviewActivity({ quiet = false } = {}) {
+    if (!backendConnected) {
+      renderOverviewActivityUnavailable();
+      return false;
+    }
+    try {
+      const events = await apiFetch("/audit?limit=8");
+      renderOverviewActivity(Array.isArray(events) ? events : []);
+      return true;
+    } catch (error) {
+      renderOverviewActivityUnavailable();
+      if (!quiet) toast(`最近活动读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
   }
 
   async function loadLearningDashboard({ quiet = false } = {}) {
@@ -496,6 +651,8 @@
       if (qs("#learning-score-output")) qs("#learning-score-output").textContent = "70%";
       if (qs("#learning-confidence-output")) qs("#learning-confidence-output").textContent = "70%";
       await loadLearningDashboard({ quiet: true });
+      await loadCoachReport({ quiet: true });
+      await loadCoachPlan({ quiet: true });
       toast(`答题已保存：${learningRatingLabel(result.rating)}，下次 ${formatLearningDateTime(result.due_at)}`, "calendar-check-2");
     } catch (error) {
       toast(`答题记录未保存：${learningErrorMessage(error)}`, "circle-alert");
@@ -520,6 +677,16 @@
       label.className = `status-label ${configured ? "is-success" : "is-warning"}`;
     }
     if (detail && message) detail.textContent = message;
+  }
+
+  function setProviderTestStatus(ok, message) {
+    const label = qs("#provider-state");
+    const detail = qs("#provider-message");
+    if (label) {
+      label.textContent = ok ? "连接正常" : "连接失败";
+      label.className = `status-label ${ok ? "is-success" : "is-danger"}`;
+    }
+    if (detail) detail.textContent = message;
   }
 
   async function refreshCredentialStatus() {
@@ -569,6 +736,688 @@
       setCredentialStatus(false, "凭据保存失败，请检查本地服务日志");
       toast(`密钥未保存：${error.message}`, "circle-alert");
       return false;
+    }
+  }
+
+  function modelConnectionErrorMessage(error) {
+    const message = error?.message || "连接测试失败";
+    return ({
+      "Model credential is not configured": "请先保存该服务商的 API 密钥",
+      "Model role is not configured": "请先在角色表单中填写模型 ID 并保存",
+      "Model endpoint is not allowed": "API 地址格式不受支持",
+      "Model endpoint does not match the provider": "API 地址与所选官方服务商不匹配",
+      "Compatible model endpoints must use HTTPS": "兼容服务必须使用 HTTPS；仅本机服务可使用 HTTP",
+      "Model service timed out": "模型服务响应超时",
+      "Model service is unavailable": "无法连接模型服务，请检查网络和地址",
+      "Model service rejected the credential": "模型服务拒绝了该密钥",
+      "Model service quota or rate limit was reached": "模型服务额度不足或请求过于频繁",
+      "Model service rejected the connection test": "模型服务拒绝了连接测试",
+      "Model service rejected the generation request": "模型服务拒绝了生成请求",
+      "Model service returned an invalid response": "模型服务返回了无法解析的响应",
+      "Model service returned an empty response": "模型服务返回了空内容",
+      "Embedding uses the local model and cannot be configured as an external route": "文本向量角色固定使用本地模型",
+      "Embedding role does not generate text": "文本向量角色不参与生成",
+      "Credential storage is unavailable": "Windows 凭据管理器暂时不可用"
+    })[message] || message;
+  }
+
+  async function testModelConnection(event) {
+    const button = event.currentTarget;
+    const endpointInput = qs("#api-endpoint");
+    if (!endpointInput?.reportValidity()) return;
+    if (!backendConnected && !(await ensureBackendConnection())) {
+      toast("本地服务未连接，无法测试模型连接", "wifi-off");
+      return;
+    }
+    if (qs("#api-key")?.value.trim() && !(await saveCredential())) return;
+
+    const provider = qs("#provider-select")?.value || state.provider;
+    const endpoint = endpointInput.value.trim();
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>测试中</span>';
+    if (qs("#provider-message")) qs("#provider-message").textContent = "正在验证端点和凭据";
+    refreshIcons();
+    try {
+      const result = await apiFetch("/models/test", {
+        method: "POST",
+        body: JSON.stringify({ provider, endpoint })
+      });
+      const latency = Math.max(0, Number(result?.latency_ms) || 0);
+      setProviderTestStatus(true, `模型服务已响应 · ${latency < 1 ? "<1" : latency} ms`);
+      toast("模型连接测试通过", "plug-zap");
+    } catch (error) {
+      const message = modelConnectionErrorMessage(error);
+      setProviderTestStatus(false, message);
+      toast(`模型连接测试失败：${message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+      button.innerHTML = '<i data-lucide="plug-zap" aria-hidden="true"></i><span>测试连接</span>';
+      refreshIcons();
+    }
+  }
+
+  function changeModelProvider(event) {
+    const provider = event.currentTarget.value;
+    const endpoint = qs("#api-endpoint");
+    state.provider = provider;
+    if (endpoint) {
+      endpoint.value = providerDefaultEndpoints[provider] || "";
+      endpoint.placeholder = providerDefaultEndpoints[provider] || "https://你的模型服务地址/v1";
+    }
+    refreshCredentialStatus();
+  }
+
+  function setRoleStatus(role, ready, detail = "") {
+    const row = qs(`.model-role-row[data-role="${role}"]`);
+    if (!row) return;
+    const label = row.querySelector(".status-label");
+    const message = row.querySelector(".role-message");
+    if (label) {
+      label.textContent = ready ? "已配置" : "未配置";
+      label.className = `status-label ${ready ? "is-success" : "is-warning"}`;
+    }
+    if (message && detail) message.textContent = detail;
+  }
+
+  async function loadModelRoles({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    try {
+      const payload = await apiFetch("/models/roles");
+      const roles = Array.isArray(payload?.roles) ? payload.roles : [];
+      for (const role of roles) {
+        const row = qs(`.model-role-row[data-role="${role.role}"]`);
+        if (!row || role.local_only) continue;
+        const provider = qs(".role-provider", row);
+        const model = qs(".role-model", row);
+        const endpoint = qs(".role-endpoint", row);
+        if (provider) provider.value = role.provider || provider.value;
+        if (model) model.value = role.model || "";
+        if (endpoint) {
+          endpoint.value = role.endpoint || providerDefaultEndpoints[role.provider] || "";
+          endpoint.placeholder = providerDefaultEndpoints[role.provider] || "https://你的模型服务地址/v1";
+        }
+        setRoleStatus(
+          role.role,
+          Boolean(role.ready),
+          role.ready ? "角色路由已就绪" : "填写模型 ID 并为该服务商保存密钥后可用"
+        );
+      }
+    } catch (error) {
+      if (!quiet) toast(`模型角色读取失败：${modelConnectionErrorMessage(error)}`, "circle-alert");
+    }
+  }
+
+  async function saveModelRole(event) {
+    const button = event.currentTarget;
+    const role = button.dataset.role;
+    const row = qs(`.model-role-row[data-role="${role}"]`);
+    if (!row) return;
+    const provider = qs(".role-provider", row)?.value || "";
+    const model = qs(".role-model", row)?.value.trim() || "";
+    const endpoint = qs(".role-endpoint", row)?.value.trim() || "";
+    if (!model) {
+      toast("请先填写模型 ID", "circle-alert");
+      qs(".role-model", row)?.focus();
+      return;
+    }
+    button.disabled = true;
+    try {
+      await apiFetch(`/models/roles/${encodeURIComponent(role)}`, {
+        method: "PUT",
+        body: JSON.stringify({ provider, model, endpoint })
+      });
+      setRoleStatus(role, true, "角色路由已保存");
+      toast(`${roleLabels[role] || role}角色已保存`, "save");
+      await loadModelRoles({ quiet: true });
+    } catch (error) {
+      setRoleStatus(role, false, modelConnectionErrorMessage(error));
+      toast(`角色保存失败：${modelConnectionErrorMessage(error)}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function generateModelText() {
+    const prompt = qs("#generate-prompt")?.value.trim() || "";
+    const role = qs("#generate-role")?.value || "reasoning";
+    const output = qs("#generate-output");
+    if (!prompt) {
+      toast("请先输入生成测试提示词", "circle-alert");
+      qs("#generate-prompt")?.focus();
+      return;
+    }
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    const button = qs("#generate-test");
+    button.disabled = true;
+    if (output) {
+      output.hidden = false;
+      output.className = "generate-output";
+      output.textContent = "正在生成…";
+    }
+    try {
+      const result = await apiFetch("/models/generate", {
+        method: "POST",
+        body: JSON.stringify({ role, prompt, max_tokens: 1024, temperature: 0.2 })
+      });
+      const latency = Math.max(0, Number(result?.latency_ms) || 0);
+      if (output) {
+        output.textContent =
+          `${result.content}\n\n— ${result.provider} / ${result.model} · ${latency < 1 ? "<1" : latency} ms`;
+      }
+      toast("生成测试完成", "sparkles");
+    } catch (error) {
+      const message = modelConnectionErrorMessage(error);
+      if (output) {
+        output.className = "generate-output is-error";
+        output.textContent = message;
+      }
+      toast(`生成失败：${message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function bindRoleProviderChanges() {
+    qsa(".model-role-row .role-provider").forEach((select) => {
+      select.addEventListener("change", () => {
+        const row = select.closest(".model-role-row");
+        const endpoint = qs(".role-endpoint", row);
+        if (endpoint) {
+          endpoint.value = providerDefaultEndpoints[select.value] || "";
+          endpoint.placeholder = providerDefaultEndpoints[select.value] || "https://你的模型服务地址/v1";
+        }
+      });
+    });
+  }
+
+  function coachStateLabel(ok, message) {
+    const state = qs("#coach-state");
+    if (state) {
+      state.textContent = message || (ok ? "已生成" : "无记录");
+      state.className = `status-label ${ok ? "is-success" : "is-neutral"}`;
+    }
+  }
+
+  function renderCoachReport(report) {
+    const container = qs("#coach-report");
+    if (!container) return;
+    const summary = report?.summary || {};
+    if (!Number(summary.concept_count || 0)) {
+      container.innerHTML = `<div class="learning-empty"><i data-lucide="book-open-check" aria-hidden="true"></i><div><strong>暂无教练报告</strong><span>创建课程和知识点并记录答题后，这里会解释掌握度变化、薄弱前置和下一步。</span></div></div>`;
+      refreshIcons();
+      return;
+    }
+    const mastery = summary.mastery === null || summary.mastery === undefined
+      ? "—"
+      : `${Math.round(Number(summary.mastery))}%`;
+    const facts = [
+      ["知识点", `${summary.concept_count ?? 0}`],
+      ["答题次数", `${summary.attempt_count ?? 0}`],
+      ["待复习", `${summary.due_count ?? 0}`],
+      ["总体掌握", `${mastery}`],
+      ["薄弱前置", `${summary.weak_foundation_count ?? 0}`],
+      ["学习时长", formatStudyTime(Number(summary.study_seconds) || 0)]
+    ].map(([label, value]) =>
+      `<div class="coach-fact"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`
+    ).join("");
+
+    const weakList = (report?.weak_foundations || []).map((item) => {
+      const missing = (item.missing_prerequisites || [])
+        .map((prerequisite) => `${escapeHtml(prerequisite.name)}（${Math.round(Number(prerequisite.mastery) || 0)}%）`)
+        .join("、");
+      return `<div class="coach-list-item"><strong>${escapeHtml(item.concept_name)}</strong> 的前置尚未掌握<small>${missing}</small></div>`;
+    }).join("");
+
+    const next = report?.next_step || { kind: "none", concept: null };
+    let nextText = "暂无待办，等待复习到期或创建新知识点";
+    if (next.kind !== "none" && next.concept) {
+      const action = next.kind === "review" ? "复习" : next.kind === "new" ? "开始学习" : "继续练习";
+      nextText = `${action}「${next.concept.name}」`;
+    }
+    container.innerHTML =
+      `<div class="coach-facts">${facts}</div>` +
+      `<div class="coach-next">下一步：${escapeHtml(nextText)}</div>` +
+      (weakList ? `<div class="coach-list">${weakList}</div>` : "");
+    refreshIcons();
+  }
+
+  async function loadCoachReport({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    const state = qs("#coach-state");
+    if (!quiet && state) state.textContent = "生成中";
+    try {
+      const query = learningCourseId ? `?course_id=${encodeURIComponent(learningCourseId)}` : "";
+      const report = await apiFetch(`/coach/report${query}`);
+      renderCoachReport(report || {});
+      coachStateLabel(Boolean(report?.summary?.concept_count), "");
+      return true;
+    } catch (error) {
+      coachStateLabel(false, "读取失败");
+      if (!quiet) toast(`教练报告读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  function renderCoachPlan(plan) {
+    const container = qs("#coach-plan");
+    if (!container) return;
+    const summary = plan?.summary || {};
+    const days = Array.isArray(plan?.days) ? plan.days : [];
+    const hasPlan =
+      Number(summary.planned_reviews || 0) > 0 ||
+      Number(summary.planned_new_concepts || 0) > 0 ||
+      Number(summary.planned_foundations || 0) > 0;
+    if (!hasPlan) {
+      container.innerHTML = `<div class="learning-empty"><i data-lucide="calendar-range" aria-hidden="true"></i><div><strong>暂无周计划</strong><span>创建知识点并记录答题后，这里会生成未来 7 天的安排。</span></div></div>`;
+      refreshIcons();
+      return;
+    }
+    const total =
+      Number(summary.planned_reviews || 0) +
+      Number(summary.planned_new_concepts || 0) +
+      Number(summary.planned_foundations || 0);
+    const dayHtml = days.map((day) => {
+      const dayDate = new Date(`${day.date}T00:00:00`);
+      const label = Number.isNaN(dayDate.getTime())
+        ? escapeHtml(day.date || "")
+        : escapeHtml(dayDate.toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", weekday: "short" }));
+      const parts = [];
+      if (day.reviews?.length) parts.push(`复习 ${day.reviews.map((item) => escapeHtml(item.name)).join("、")}`);
+      if (day.new_concepts?.length) parts.push(`新学 ${day.new_concepts.map((item) => escapeHtml(item.name)).join("、")}`);
+      if (day.foundation_concepts?.length) parts.push(`补基础 ${day.foundation_concepts.map((item) => escapeHtml(item.name)).join("、")}`);
+      return `<div class="coach-plan-day"><strong>${label}</strong><span>${parts.join(" · ") || "休息或弹性安排"}</span></div>`;
+    }).join("");
+    container.innerHTML =
+      `<div class="coach-next">本周共 ${total} 项 · 复习 ${summary.planned_reviews || 0} · 新学 ${summary.planned_new_concepts || 0} · 补基础 ${summary.planned_foundations || 0} · 预计约 ${summary.estimated_minutes || 0} 分钟</div>` +
+      dayHtml;
+    refreshIcons();
+  }
+
+  async function loadCoachPlan({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    const state = qs("#coach-plan-state");
+    if (!quiet && state) state.textContent = "生成中";
+    try {
+      const query = learningCourseId ? `?course_id=${encodeURIComponent(learningCourseId)}` : "";
+      const plan = await apiFetch(`/coach/plan${query}`);
+      renderCoachPlan(plan || {});
+      if (state) state.textContent = "已生成";
+      return true;
+    } catch (error) {
+      if (state) state.textContent = "读取失败";
+      if (!quiet) toast(`周计划读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function loadDeepTutorStatus({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    const state = qs("#deeptutor-state");
+    const message = qs("#deeptutor-message");
+    if (!state) return false;
+    try {
+      const status = await apiFetch("/deeptutor/status");
+      const roles = Array.isArray(status?.roles) ? status.roles : [];
+      const readyRoles = roles.filter((item) => item.ready === true);
+      const roleSelect = qs("#deeptutor-role");
+      if (roleSelect && roles.length) {
+        const current = roleSelect.value;
+        roleSelect.innerHTML = roles
+          .filter((item) => item.role === "reasoning" || item.role === "fast")
+          .map((item) => {
+            const label = item.role === "reasoning" ? "深度推理" : "快速任务";
+            return `<option value="${escapeHtml(item.role)}"${item.role === current ? " selected" : ""}>${escapeHtml(label)}${item.ready ? "" : "（未配置）"}</option>`;
+          })
+          .join("");
+      }
+      if (!status?.installed) {
+        state.className = "status-label is-danger";
+        state.textContent = "未安装";
+        if (message) message.textContent = "DeepTutor 运行环境不可用";
+        return true;
+      }
+      if (readyRoles.length === 0) {
+        state.className = "status-label is-warning";
+        state.textContent = "待配置角色";
+        if (message) message.textContent = "请先在设置页配置模型角色与密钥";
+        return true;
+      }
+      state.className = "status-label is-success";
+      state.textContent = `已就绪（v${escapeHtml(status.version || "?")}）`;
+      if (message) message.textContent = `${readyRoles.length} 个模型角色可用`;
+      return true;
+    } catch (error) {
+      state.className = "status-label is-danger";
+      state.textContent = "读取失败";
+      if (message) message.textContent = error.message;
+      if (!quiet) toast(`DeepTutor 状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function runDeepTutor(event) {
+    const button = event.currentTarget;
+    const message = qs("#deeptutor-message");
+    const output = qs("#deeptutor-output");
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    const prompt = qs("#deeptutor-prompt")?.value.trim();
+    if (!prompt) {
+      if (message) message.textContent = "请输入提示词";
+      return;
+    }
+    button.disabled = true;
+    if (message) message.textContent = "DeepTutor 正在运行，可能需要数十秒…";
+    if (output) {
+      output.hidden = false;
+      output.textContent = "运行中…";
+    }
+    try {
+      const result = await apiFetch("/deeptutor/run", {
+        method: "POST",
+        body: JSON.stringify({
+          capability: qs("#deeptutor-capability")?.value || "chat",
+          role: qs("#deeptutor-role")?.value || "reasoning",
+          language: "zh",
+          prompt,
+          timeout_seconds: 300
+        })
+      });
+      if (output) {
+        output.textContent = result.answer || "（未返回内容）";
+        output.insertAdjacentHTML(
+          "beforeend",
+          `<small>模型：${escapeHtml(result.provider)} / ${escapeHtml(result.model)} · ${escapeHtml(result.latency_ms)} ms · 会话 ${escapeHtml(result.session_id || "—")}</small>`
+        );
+      }
+      if (message) message.textContent = `完成（${result.latency_ms} ms）`;
+      toast("DeepTutor 调用完成", "sparkles");
+    } catch (error) {
+      if (message) message.textContent = `失败：${error.message}`;
+      if (output) {
+        output.hidden = false;
+        output.textContent = `调用失败：${error.message}`;
+      }
+      toast(`DeepTutor 调用失败：${error.message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function loadZoteroStatus({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    const container = qs("#zotero-status");
+    if (!container) return false;
+    try {
+      const status = await apiFetch("/zotero/status");
+      if (!status?.available) {
+        container.innerHTML =
+          `<span class="status-label is-warning">未检测到数据目录</span>` +
+          `<small>${escapeHtml(status?.database_path || "尚未配置 Zotero 数据目录")}</small>`;
+        return true;
+      }
+      const sync = status.last_sync;
+      const last = !sync
+        ? "尚未同步，可点击“同步 Zotero”"
+        : sync.status === "success"
+          ? `最近同步：${formatLearningDateTime(sync.finished_at)} · ${sync.item_count} 条条目 / ${sync.collection_count} 个集合 / ${sync.attachment_count} 个附件`
+          : `上次同步失败：${escapeHtml(sync.error || "未知错误")}`;
+      const autoSync = status.auto_sync_enabled
+        ? ` · 自动同步每 ${status.auto_sync_interval_hours || 6} 小时`
+        : " · 自动同步未启用";
+      container.innerHTML = `<span class="status-label is-success">数据目录已就绪</span><small>${escapeHtml(last)}${autoSync}</small>`;
+      return true;
+    } catch (error) {
+      container.innerHTML = `<span class="status-label is-danger">读取失败</span><small>${escapeHtml(error.message)}</small>`;
+      if (!quiet) toast(`Zotero 状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function syncZotero(event) {
+    const button = event.currentTarget;
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    button.disabled = true;
+    try {
+      const result = await apiFetch("/zotero/sync", { method: "POST" });
+      toast(`Zotero 同步完成：${result.items} 条条目、${result.attachments} 个附件`, "library");
+      await loadZoteroStatus({ quiet: true });
+    } catch (error) {
+      toast(`Zotero 同步失败：${error.message}`, "circle-alert");
+      await loadZoteroStatus({ quiet: true });
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function loadOpsStatus({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    const container = qs("#ops-status");
+    if (!container) return false;
+    try {
+      const status = await apiFetch("/ops/status");
+      const database = status?.database || {};
+      const storage = status?.storage || {};
+      const backup = status?.backup;
+      const settings = status?.backup_settings || {};
+      const enabledInput = qs("#backup-enabled");
+      const intervalInput = qs("#backup-interval");
+      const keepInput = qs("#backup-keep");
+      if (enabledInput) enabledInput.checked = settings.enabled === true;
+      if (intervalInput) intervalInput.value = settings.interval_hours ?? 24;
+      if (keepInput) keepInput.value = settings.keep_count ?? 14;
+      const freeGb = (Number(storage.free_bytes) || 0) / 1024 ** 3;
+      const facts = [
+        ["完整性检查", `${database.quick_check || "—"}`],
+        ["磁盘剩余", `${freeGb.toFixed(1)} GB（${Number(storage.free_percent) || 0}%）`],
+        ["最近备份", backup ? `${backup.age_days} 天前` : "无"],
+        ["数据库大小", `${Math.max(1, Math.round((Number(database.size_bytes) || 0) / 1024))} KB`]
+      ].map(([label, value]) =>
+        `<div class="ops-fact"><strong>${escapeHtml(value)}</strong><span>${escapeHtml(label)}</span></div>`
+      ).join("");
+      const warnings = (status?.warnings || [])
+        .map((warning) => `<div class="coach-list-item"><strong>${escapeHtml(warning)}</strong></div>`)
+        .join("");
+      container.innerHTML =
+        `<div class="ops-facts">${facts}</div>` +
+        (warnings ? `<div class="ops-list">${warnings}</div>` : "");
+      return true;
+    } catch (error) {
+      container.innerHTML = `<span class="status-label is-danger">读取失败</span><small>${escapeHtml(error.message)}</small>`;
+      if (!quiet) toast(`运维状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function runBackup(event) {
+    const button = event.currentTarget;
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    button.disabled = true;
+    try {
+      const result = await apiFetch("/ops/backup", { method: "POST" });
+      toast(`备份完成：${result.path.split(/[\\/]/).pop()}（完整性 ${result.quick_check}）`, "database-backup");
+      await loadOpsStatus({ quiet: true });
+    } catch (error) {
+      toast(`备份失败：${error.message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function saveBackupSettings(event) {
+    const button = event.currentTarget;
+    const message = qs("#backup-settings-message");
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    button.disabled = true;
+    if (message) message.textContent = "保存中…";
+    try {
+      const enabled = qs("#backup-enabled")?.checked === true;
+      const intervalHours = Math.max(1, Math.min(720, Number(qs("#backup-interval")?.value) || 24));
+      const keepCount = Math.max(1, Math.min(365, Number(qs("#backup-keep")?.value) || 14));
+      const result = await apiFetch("/ops/backup/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled,
+          interval_hours: intervalHours,
+          keep_count: keepCount
+        })
+      });
+      const enabledInput = qs("#backup-enabled");
+      const intervalInput = qs("#backup-interval");
+      const keepInput = qs("#backup-keep");
+      if (enabledInput) enabledInput.checked = result.enabled === true;
+      if (intervalInput) intervalInput.value = result.interval_hours;
+      if (keepInput) keepInput.value = result.keep_count;
+      if (message) message.textContent = "备份设置已保存";
+      toast("备份设置已保存", "save");
+      await loadOpsStatus({ quiet: true });
+    } catch (error) {
+      if (message) message.textContent = "保存失败";
+      toast(`备份设置保存失败：${error.message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function renderBrowserActions(actions) {
+    const container = qs("#browser-actions");
+    if (!container) return;
+    const items = Array.isArray(actions) ? actions : [];
+    if (!items.length) {
+      container.innerHTML = `<div class="learning-empty"><i data-lucide="globe" aria-hidden="true"></i><div><strong>暂无浏览器动作</strong><span>由本地 API 或 MCP 提交的动作会出现在这里等待审批。</span></div></div>`;
+      refreshIcons();
+      return;
+    }
+    const statusClass = {
+      pending: "is-warning",
+      executing: "is-warning",
+      succeeded: "is-success",
+      failed: "is-danger",
+      rejected: "is-neutral",
+      stopped: "is-neutral"
+    };
+    const riskLabel = { low: "低", medium: "中", high: "高" };
+    const rows = items.map((item) => {
+      const target = item.action === "open"
+        ? item.url || ""
+        : item.action === "snapshot"
+          ? "当前页面快照"
+          : `${item.selector || ""}${item.text ? ` → ${item.text}` : ""}`;
+      const buttons = item.status === "pending"
+        ? `<div class="field-action"><button class="secondary-button browser-approve" type="button" data-id="${escapeHtml(item.id)}"><i data-lucide="check" aria-hidden="true"></i><span>批准</span></button><button class="secondary-button browser-reject" type="button" data-id="${escapeHtml(item.id)}"><i data-lucide="x" aria-hidden="true"></i><span>拒绝</span></button></div>`
+        : "";
+      return `<article class="browser-action-row"><div><strong>${escapeHtml(item.action)} · ${riskLabel[item.risk] || item.risk} 风险</strong><span>${escapeHtml(target)}</span></div><span class="status-label ${statusClass[item.status] || "is-neutral"}">${escapeHtml(item.status)}</span>${buttons}</article>`;
+    }).join("");
+    container.innerHTML = rows;
+    refreshIcons();
+    qsa(".browser-approve", container).forEach((button) =>
+      button.addEventListener("click", () => approveBrowserAction(button.dataset.id))
+    );
+    qsa(".browser-reject", container).forEach((button) =>
+      button.addEventListener("click", () => rejectBrowserAction(button.dataset.id))
+    );
+  }
+
+  async function loadBrowserStatus({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    try {
+      const status = await apiFetch("/browser/status");
+      const input = qs("#browser-allowlist");
+      if (input) input.value = (status?.allowlist || []).join(", ");
+      const state = qs("#browser-state");
+      if (state) {
+        if (status?.emergency_stopped) {
+          state.textContent = "已紧急停止";
+          state.className = "status-label is-danger";
+        } else if (!status?.available) {
+          state.textContent = "Playwright 未安装";
+          state.className = "status-label is-warning";
+        } else {
+          state.textContent = `可用 · 待审批 ${status?.pending_count || 0}`;
+          state.className = "status-label is-success";
+        }
+      }
+      const message = qs("#browser-message");
+      if (message) {
+        message.textContent = status?.emergency_stopped
+          ? "紧急停止已触发，恢复前不接受新动作"
+          : `白名单 ${(status?.allowlist || []).length} 个域名 · 最近记录 ${status?.recent_count || 0} 条`;
+      }
+      return true;
+    } catch (error) {
+      if (!quiet) toast(`浏览器状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function loadBrowserActions({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    try {
+      const payload = await apiFetch("/browser/actions");
+      renderBrowserActions(Array.isArray(payload) ? payload : []);
+      return true;
+    } catch (error) {
+      if (!quiet) toast(`浏览器动作读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function saveBrowserAllowlist() {
+    const input = qs("#browser-allowlist");
+    const domains = (input?.value || "").split(",").map((value) => value.trim()).filter(Boolean);
+    try {
+      const result = await apiFetch("/browser/allowlist", {
+        method: "PUT",
+        body: JSON.stringify({ domains })
+      });
+      toast(`浏览器白名单已保存：${(result?.allowlist || []).join(", ")}`, "save");
+      await loadBrowserStatus({ quiet: true });
+    } catch (error) {
+      toast(`白名单保存失败：${error.message}`, "circle-alert");
+    }
+  }
+
+  async function approveBrowserAction(actionId) {
+    try {
+      const result = await apiFetch(`/browser/actions/${encodeURIComponent(actionId)}/approve`, { method: "POST" });
+      toast(`浏览器动作已执行：${result?.status || "succeeded"}`, "check-circle-2");
+      await loadBrowserActions({ quiet: true });
+      await loadBrowserStatus({ quiet: true });
+    } catch (error) {
+      toast(`浏览器动作执行失败：${error.message}`, "circle-alert");
+      await loadBrowserActions({ quiet: true });
+      await loadBrowserStatus({ quiet: true });
+    }
+  }
+
+  async function rejectBrowserAction(actionId) {
+    try {
+      await apiFetch(`/browser/actions/${encodeURIComponent(actionId)}/reject`, { method: "POST" });
+      toast("浏览器动作已拒绝", "x");
+      await loadBrowserActions({ quiet: true });
+      await loadBrowserStatus({ quiet: true });
+    } catch (error) {
+      toast(`拒绝失败：${error.message}`, "circle-alert");
+    }
+  }
+
+  async function browserStop() {
+    try {
+      await apiFetch("/browser/stop", { method: "POST" });
+      toast("已紧急停止浏览器自动化", "octagon-alert");
+      await loadBrowserStatus({ quiet: true });
+      await loadBrowserActions({ quiet: true });
+    } catch (error) {
+      toast(`紧急停止失败：${error.message}`, "circle-alert");
+    }
+  }
+
+  async function browserResume() {
+    try {
+      await apiFetch("/browser/resume", { method: "POST" });
+      toast("浏览器自动化已恢复", "play-circle");
+      await loadBrowserStatus({ quiet: true });
+    } catch (error) {
+      toast(`恢复失败：${error.message}`, "circle-alert");
     }
   }
 
@@ -1185,6 +2034,165 @@
     }
   }
 
+  function paperqaStatusLabel(status) {
+    if (!status) return { text: "不可用", tone: "is-danger" };
+    if (status.ready) return { text: "就绪 · 可提问", tone: "is-success" };
+    const reasons = [];
+    if (!status.llm?.ready) {
+      reasons.push(
+        status.llm?.error === "credential_missing"
+          ? "缺少模型密钥"
+          : status.llm?.error === "credential_store_unavailable"
+            ? "凭据存储不可用"
+            : "模型角色未配置"
+      );
+    }
+    if (!status.index?.built) reasons.push("未建立索引");
+    return { text: reasons.join(" · ") || "未就绪", tone: "is-warning" };
+  }
+
+  function setPaperQAAskEnabled(enabled) {
+    qsa("#paperqa-ask-form input, #paperqa-ask-form select, #paperqa-ask-form button")
+      .forEach((control) => { control.disabled = !enabled; });
+  }
+
+  function setPaperQAIndexEnabled(enabled) {
+    qsa("#paperqa-index-form input, #paperqa-index-form select, #paperqa-index-form button")
+      .forEach((control) => { control.disabled = !enabled; });
+  }
+
+  function setPaperQAUnavailable(detail) {
+    paperqaStatus = null;
+    const label = qs("#paperqa-status");
+    if (label) { label.textContent = "不可用"; label.className = "status-label is-danger"; }
+    const feedback = qs("#paperqa-feedback");
+    if (feedback) { feedback.textContent = detail; feedback.dataset.state = "error"; }
+    setPaperQAAskEnabled(false);
+    setPaperQAIndexEnabled(false);
+  }
+
+  async function loadPaperQAStatus({ quiet = false } = {}) {
+    if (!backendConnected) {
+      setPaperQAUnavailable("本地服务未连接");
+      return;
+    }
+    try {
+      paperqaStatus = await apiFetch("/paperqa/status");
+      const status = paperqaStatus;
+      const label = qs("#paperqa-status");
+      if (label) {
+        const presentation = paperqaStatusLabel(status);
+        label.textContent = presentation.text;
+        label.className = `status-label ${presentation.tone}`;
+      }
+      const indexPath = qs("#paperqa-index-path-label");
+      if (indexPath) indexPath.textContent = status?.index_path || "…";
+      const feedback = qs("#paperqa-feedback");
+      if (feedback) {
+        const index = status?.index;
+        if (status?.ready) feedback.textContent = `索引 ${index?.document_count ?? 0} 篇文档 · 可以提问`;
+        else if (index?.built) feedback.textContent = `已索引 ${index?.document_count ?? 0} 篇文档 · 配置模型角色后即可提问`;
+        else feedback.textContent = "先建立索引，再配置模型角色即可提问";
+        feedback.dataset.state = "idle";
+      }
+      setPaperQAAskEnabled(Boolean(status?.ready));
+      setPaperQAIndexEnabled(true);
+      if (!quiet && status?.index?.built) {
+        toast(`论文索引状态：${status.index.document_count} 篇文档`, "library-big");
+      }
+    } catch (error) {
+      setPaperQAUnavailable(error.message || "无法读取论文问答状态");
+      if (!quiet) toast(`论文问答状态读取失败：${error.message}`, "circle-alert");
+    }
+  }
+
+  async function buildPaperQAIndex(event) {
+    event.preventDefault();
+    const path = qs("#paperqa-index-path")?.value.trim() || "";
+    const role = "reasoning";
+    if (!path) return;
+    const button = qs('#paperqa-index-form button[type="submit"]');
+    const feedback = qs("#paperqa-feedback");
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>建立中</span>';
+    if (feedback) { feedback.textContent = "正在解析文档并建立本地向量索引…"; feedback.dataset.state = "loading"; }
+    refreshIcons();
+    try {
+      const result = await apiFetch("/paperqa/index", {
+        method: "POST",
+        body: JSON.stringify({ path, role })
+      });
+      if (feedback) {
+        feedback.textContent = `已索引 ${result.document_count} 篇文档，可在下方提问。`;
+        feedback.dataset.state = "success";
+      }
+      await loadPaperQAStatus({ quiet: true });
+      toast(`论文索引建立完成：${result.document_count} 篇`, "library-big");
+    } catch (error) {
+      if (feedback) { feedback.textContent = error.message; feedback.dataset.state = "error"; }
+      toast(`建立索引失败：${error.message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+      button.innerHTML = '<i data-lucide="library-big" aria-hidden="true"></i><span>建立索引</span>';
+      refreshIcons();
+    }
+  }
+
+  async function askPaperQA(event) {
+    event.preventDefault();
+    const question = qs("#paperqa-question")?.value.trim() || "";
+    const role = qs("#paperqa-role")?.value || "reasoning";
+    if (!question) return;
+    if (!paperqaStatus?.ready) {
+      toast("请先配置模型角色并建立论文索引", "settings-2");
+      return;
+    }
+    const button = qs('#paperqa-ask-form button[type="submit"]');
+    const feedback = qs("#paperqa-feedback");
+    button.disabled = true;
+    button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>回答中</span>';
+    if (feedback) { feedback.textContent = "正在检索证据并生成回答…"; feedback.dataset.state = "loading"; }
+    refreshIcons();
+    try {
+      const result = await apiFetch("/paperqa/ask", {
+        method: "POST",
+        body: JSON.stringify({ question, role, max_tokens: 1024, temperature: 0.2 })
+      });
+      renderPaperQAAnswer(result);
+      if (feedback) {
+        feedback.textContent = `回答完成 · ${result.latency_ms} ms`;
+        feedback.dataset.state = "success";
+      }
+    } catch (error) {
+      if (feedback) { feedback.textContent = error.message; feedback.dataset.state = "error"; }
+      toast(`提问失败：${error.message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
+      button.innerHTML = '<i data-lucide="sparkles" aria-hidden="true"></i><span>提问</span>';
+      refreshIcons();
+    }
+  }
+
+  function renderPaperQAAnswer(result) {
+    const wrap = qs("#paperqa-result");
+    const answer = qs("#paperqa-answer-text");
+    const sources = qs("#paperqa-sources");
+    const count = qs("#paperqa-source-count");
+    if (wrap) wrap.hidden = false;
+    if (answer) answer.textContent = result.answer || result.formatted_answer || result.context || "（未返回回答）";
+    const items = Array.isArray(result.sources) ? result.sources : [];
+    if (count) count.textContent = items.length;
+    if (sources) {
+      sources.innerHTML = items.map((source) => {
+        const rawText = source.text || "";
+        const text = rawText.length > 700 ? `${rawText.slice(0, 700)}…` : rawText;
+        const title = source.citation || source.docname || "未命名来源";
+        return `<article class="paperqa-source"><strong>${escapeHtml(title)}</strong><p>${escapeHtml(text)}</p><small>相关度 ${Number(source.score) || 0}</small></article>`;
+      }).join("") || '<p class="paperqa-no-sources">未返回具体引用来源。</p>';
+    }
+    refreshIcons();
+  }
+
   async function runResearchSearch(event) {
     event.preventDefault();
     if (!researchProjectId) { toast("请先选择或创建科研项目", "folder-search"); return; }
@@ -1282,18 +2290,6 @@
     }
   }
 
-  function addAssistantResponse(prompt) {
-    const shell = qs("#assistant-dialog .dialog-shell");
-    if (!shell) return;
-    qs(".assistant-response", shell)?.remove();
-    const response = document.createElement("div");
-    response.className = "assistant-response";
-    response.innerHTML = `<div><i data-lucide="sparkles" aria-hidden="true"></i><strong>通用 AI 对话尚未接入</strong></div><p>已读取你的输入“${escapeHtml(prompt)}”，但当前没有调用模型 API，也没有创建或执行电脑操作。</p><small>资料检索、学习和科研功能请先使用对应页面。</small>`;
-    const composer = qs(".dialog-prompt", shell);
-    shell.insertBefore(response, composer);
-    refreshIcons();
-  }
-
   const activeAgentStatuses = new Set(["queued", "handoff_pending", "handoff_requested"]);
   const agentStatusPresentation = {
     queued: { label: "等待交接", icon: "list-todo", tone: "neutral" },
@@ -1355,6 +2351,7 @@
   function renderAgentTasks() {
     const list = qs("#agent-task-list");
     if (!list) return;
+    renderOverviewTasks();
     if (qs("#agent-task-total")) qs("#agent-task-total").textContent = `${agentTasks.length} 个`;
     if (!agentTasks.length) {
       list.innerHTML = '<div class="learning-empty" id="agent-task-empty"><i data-lucide="inbox" aria-hidden="true"></i><div><strong>还没有任务记录</strong><span>新任务会先进入本地队列，再由你决定何时交给 Cline。</span></div></div>';
@@ -1509,7 +2506,6 @@
       qs("#mobile-scrim")?.classList.remove("is-visible");
     });
 
-    qs("#ask-ai")?.addEventListener("click", () => openDialog("#assistant-dialog"));
     qs("#continue-setup")?.addEventListener("click", () => showPage("settings"));
     qs("#start-session")?.addEventListener("click", () => focusLearningAttempt());
     qs("#refresh-learning")?.addEventListener("click", async (event) => {
@@ -1518,6 +2514,8 @@
       button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>刷新中</span>';
       refreshIcons();
       await loadLearningDashboard();
+      await loadCoachReport({ quiet: true });
+      await loadCoachPlan({ quiet: true });
       button.disabled = false;
       button.innerHTML = '<i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新进度</span>';
       refreshIcons();
@@ -1525,6 +2523,8 @@
     qs("#learning-course-select")?.addEventListener("change", async (event) => {
       learningCourseId = event.currentTarget.value;
       await loadLearningDashboard({ quiet: true });
+      await loadCoachReport({ quiet: true });
+      await loadCoachPlan({ quiet: true });
     });
     qs("#learning-concept-course")?.addEventListener("change", updateLearningPrerequisites);
     qs("#learning-course-form")?.addEventListener("submit", createLearningCourse);
@@ -1540,14 +2540,6 @@
       const button = event.target.closest("[data-record-concept]");
       if (button) focusLearningAttempt(button.dataset.recordConcept);
     });
-    qsa(".task-check").forEach((button) => button.addEventListener("click", () => {
-      const done = button.classList.toggle("is-done");
-      button.innerHTML = done ? '<i data-lucide="check" aria-hidden="true"></i>' : "";
-      button.setAttribute("aria-label", done ? "标记任务未完成" : "标记任务完成");
-      refreshIcons();
-      toast(done ? "任务已完成" : "任务已恢复", done ? "check" : "rotate-ccw");
-    }));
-
     qs("#library-import-form")?.addEventListener("submit", importLibraryPath);
     qs("#focus-import-path")?.addEventListener("click", () => {
       qs("#library-import-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1614,6 +2606,12 @@
       if (stateLabel) stateLabel.textContent = "有未保存修改";
     });
     qs("#save-note")?.addEventListener("click", saveResearchNote);
+    qs("#overview-task-list")?.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-go]");
+      if (item) showPage(item.dataset.go);
+    });
+    qs("#paperqa-index-form")?.addEventListener("submit", buildPaperQAIndex);
+    qs("#paperqa-ask-form")?.addEventListener("submit", askPaperQA);
 
     qs("#refresh-agent")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
@@ -1658,17 +2656,32 @@
       toast("任务已记录到本地队列，等待你确认交接", "database");
       input.value = "";
     });
-    qsa(".automation-item .switch input").forEach((input) => input.addEventListener("change", () => toast(input.checked ? "流程已启用" : "流程已暂停", input.checked ? "play-circle" : "pause-circle")));
-    qs("#new-automation")?.addEventListener("click", () => toast("创建流程向导将在后端服务接入后开放", "workflow"));
+    qs("#save-browser-allowlist")?.addEventListener("click", saveBrowserAllowlist);
+    qs("#browser-stop")?.addEventListener("click", browserStop);
+    qs("#browser-resume")?.addEventListener("click", browserResume);
 
-    qs("#provider-select")?.addEventListener("change", refreshCredentialStatus);
+    qs("#provider-select")?.addEventListener("change", changeModelProvider);
     qs("#refresh-tools")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
       await loadTools();
       button.disabled = false;
     });
-    qs("#test-provider")?.addEventListener("click", saveCredential);
+    qs("#save-provider")?.addEventListener("click", saveCredential);
+    qs("#test-provider")?.addEventListener("click", testModelConnection);
+    qs("#sync-zotero")?.addEventListener("click", syncZotero);
+    qs("#run-backup")?.addEventListener("click", runBackup);
+    qs("#save-backup-settings")?.addEventListener("click", saveBackupSettings);
+    qs("#run-deeptutor")?.addEventListener("click", runDeepTutor);
+    qs("#refresh-model-roles")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      await loadModelRoles();
+      button.disabled = false;
+    });
+    qsa(".role-save").forEach((button) => button.addEventListener("click", saveModelRole));
+    qs("#generate-test")?.addEventListener("click", generateModelText);
+    bindRoleProviderChanges();
     qs("#save-settings")?.addEventListener("click", async () => {
       state.provider = qs("#provider-select")?.value || state.provider;
       state.endpoint = qs("#api-endpoint")?.value || state.endpoint;
@@ -1697,19 +2710,7 @@
       refreshIcons();
     });
 
-    qs("#assistant-dialog")?.addEventListener("click", (event) => {
-      if (event.target === event.currentTarget) event.currentTarget.close();
-    });
     qsa("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => closeDialog(button.dataset.closeDialog)));
-    qsa("[data-prompt]").forEach((button) => button.addEventListener("click", () => {
-      const input = qs("#assistant-input");
-      if (input) { input.value = button.dataset.prompt; input.focus(); }
-    }));
-    qs("#send-assistant")?.addEventListener("click", () => {
-      const input = qs("#assistant-input");
-      if (!input?.value.trim()) { toast("先输入一个问题或选择常用任务", "message-circle-warning"); input?.focus(); return; }
-      addAssistantResponse(input.value.trim());
-    });
 
     qs("#project-form")?.addEventListener("submit", createResearchProject);
 

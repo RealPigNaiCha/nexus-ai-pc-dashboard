@@ -65,10 +65,14 @@ class ApiCredentialStore:
         self._lock = threading.RLock()
 
     def is_configured(self, provider: str) -> bool:
+        return self.get(provider) is not None
+
+    def get(self, provider: str) -> str | None:
+        """Read a secret for immediate use without exposing it through the API."""
         username = self._username(provider)
         try:
             with self._lock:
-                return self._backend.get_password(SERVICE_NAME, username) is not None
+                return self._backend.get_password(SERVICE_NAME, username)
         except Exception:
             raise CredentialStorageError from None
 

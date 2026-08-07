@@ -30,12 +30,14 @@ class ToolRegistry:
     def list_tools(self, app_version: str) -> list[dict[str, object]]:
         agent_status = self.agent_handoff.status()
         deeptutor_root = self.ai_pc_root / "tools" / "deeptutor"
+        deeptutor_python = deeptutor_root / ".venv-cli" / "Scripts" / "python.exe"
         codex_executable = self.ai_pc_root / "tools" / "codex" / "codex.exe"
         obsidian_executable = self.local_app_data / "Programs" / "Obsidian" / "Obsidian.exe"
         zotero_executable = self.program_files / "Zotero" / "zotero.exe"
         vault_path = self.ai_pc_root / "vault"
 
         deeptutor_installed = (deeptutor_root / "pyproject.toml").is_file()
+        deeptutor_ready = deeptutor_installed and deeptutor_python.is_file()
         codex_installed = codex_executable.is_file()
         obsidian_installed = obsidian_executable.is_file()
         zotero_installed = zotero_executable.is_file()
@@ -75,9 +77,9 @@ class ToolRegistry:
                 "deeptutor",
                 "DeepTutor",
                 "learning",
-                "installed" if deeptutor_installed else "unavailable",
-                "adapter_pending" if deeptutor_installed else "missing",
-                deeptutor_installed,
+                "ready" if deeptutor_ready else "installed" if deeptutor_installed else "unavailable",
+                "active" if deeptutor_ready else "adapter_pending" if deeptutor_installed else "missing",
+                deeptutor_ready,
                 version=self._deeptutor_version(deeptutor_root),
                 path=deeptutor_root,
             ),
@@ -110,7 +112,7 @@ class ToolRegistry:
                 version=self._zotero_version(zotero_executable),
                 path=zotero_executable,
             ),
-            self._tool("paperqa2", "PaperQA2", "research", "planned", "planned", False),
+            self._tool("paperqa2", "PaperQA2", "research", "ready", "active", True),
             self._tool("openadapt", "OpenAdapt", "automation", "planned", "planned", False),
         ]
 

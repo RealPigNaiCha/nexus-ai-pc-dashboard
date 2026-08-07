@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import shutil
 from contextlib import asynccontextmanager
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from ipaddress import ip_address
 from pathlib import Path
 from typing import Literal, Sequence
@@ -17,6 +19,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr
 
 from .agent import AgentHandoff, AgentHandoffError
+from .browser import (
+    BrowserController,
+    BrowserError,
+    BrowserExecutor,
+    PlaywrightExecutor,
+)
 from .credentials import (
     SUPPORTED_PROVIDERS,
     ApiCredentialStore,
@@ -25,8 +33,35 @@ from .credentials import (
     normalize_provider,
 )
 from .database import Database, utc_now
+from .deeptutor import DeepTutorError, DeepTutorService
 from .learning import review_concept
 from .library import discover_source_files, parse_document, resolve_source_path
+from .model_gateway import (
+    MODEL_ROLES,
+    ModelGateway,
+    ModelGatewayError,
+    ModelProbeCancelled,
+    ModelRequestCancelled,
+    build_chat_url,
+    build_probe_url,
+)
+from .ops import (
+    DEFAULT_BACKUP_ENABLED,
+    DEFAULT_BACKUP_INTERVAL_HOURS,
+    DEFAULT_BACKUP_KEEP_COUNT,
+    MAX_KEEP_COUNT,
+    MAX_INTERVAL_HOURS,
+    MIN_KEEP_COUNT,
+    MIN_INTERVAL_HOURS,
+    read_backup_settings,
+    run_auto_backup,
+    save_backup_settings,
+)
+from .paperqa import (
+    SUPPORTED_PAPERQA_ROLES,
+    PaperQAError,
+    PaperQAService,
+)
 from .research import LiteratureClient, ResearchUpstreamError
 from .semantic import (
     DEFAULT_COLLECTION_NAME,
@@ -37,9 +72,11 @@ from .semantic import (
     SemanticIndex,
 )
 from .tooling import ToolRegistry
+from .zotero import ZoteroReader, ZoteroReadError
 
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
+logger = logging.getLogger("nexus.app")
 
 
 class StrictModel(BaseModel):
@@ -115,8 +152,92 @@ class SettingsUpdate(StrictModel):
     data_path: str = Field(max_length=1000)
 
 
+class BackupSettingsUpdate(StrictModel):
+    enabled: bool = True
+    interval_hours: int = Field(
+        default=DEFAULT_BACKUP_INTERVAL_HOURS,
+        ge=MIN_INTERVAL_HOURS,
+        le=MAX_INTERVAL_HOURS,
+    )
+    keep_count: int = Field(
+        default=DEFAULT_BACKUP_KEEP_COUNT,
+        ge=MIN_KEEP_COUNT,
+        le=MAX_KEEP_COUNT,
+    )
+
+
 class CredentialUpdate(StrictModel):
     api_key: SecretStr = Field(min_length=1, max_length=8_192)
+
+
+class ModelConnectionTestRequest(StrictModel):
+    provider: str = Field(min_length=1, max_length=100)
+    endpoint: HttpUrl
+
+
+class ModelRoleUpdate(StrictModel):
+    provider: str = Field(min_length=1, max_length=100)
+    model: str = Field(min_length=1, max_length=200)
+    endpoint: HttpUrl
+
+
+class ModelGenerateRequest(StrictModel):
+    role: str = Field(min_length=1, max_length=32)
+    prompt: str = Field(min_length=1, max_length=20_000)
+    system: str | None = Field(default=None, max_length=10_000)
+    max_tokens: int = Field(default=1024, ge=1, le=8192)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+
+
+class BrowserActionCreate(StrictModel):
+    action: Literal["open", "click", "type", "snapshot", "close"]
+    url: str | None = Field(default=None, max_length=2000)
+    selector: str | None = Field(default=None, max_length=500)
+    text: str | None = Field(default=None, max_length=2000)
+    timeout_ms: int = Field(default=15_000, ge=1_000, le=120_000)
+
+
+class BrowserAllowlistUpdate(StrictModel):
+    domains: list[str] = Field(default_factory=list, max_length=50)
+
+
+class PaperQAIndexRequest(StrictModel):
+    path: str = Field(min_length=1, max_length=32_000)
+    role: str = Field(default="reasoning", min_length=1, max_length=32)
+
+
+class PaperQAAskRequest(StrictModel):
+    question: str = Field(min_length=1, max_length=2000)
+    role: str = Field(default="reasoning", min_length=1, max_length=32)
+    max_tokens: int = Field(default=1024, ge=1, le=8192)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+
+
+class DeepTutorRunRequest(StrictModel):
+    capability: str = Field(default="chat", min_length=1, max_length=64)
+    prompt: str = Field(min_length=1, max_length=4000)
+    role: str = Field(default="reasoning", min_length=1, max_length=32)
+    language: str = Field(default="zh", min_length=2, max_length=16)
+    session_id: str | None = Field(default=None, max_length=128)
+    timeout_seconds: int = Field(default=300, ge=10, le=600)
+
+
+def concept_trend(database: Database, concept_id: int) -> str:
+    attempts = database.query_all(
+        "SELECT score FROM learning_attempts WHERE concept_id = ? ORDER BY id DESC LIMIT 2",
+        (concept_id,),
+    )
+    if not attempts:
+        return "new"
+    if len(attempts) == 1:
+        return "started"
+    earlier = float(attempts[-1]["score"])
+    latest = float(attempts[0]["score"])
+    if latest - earlier >= 0.05:
+        return "improving"
+    if earlier - latest >= 0.05:
+        return "declining"
+    return "stable"
 
 
 def create_app(
@@ -125,14 +246,22 @@ def create_app(
     allowed_library_roots: Sequence[Path] | None = None,
     credential_backend: KeyringBackend | None = None,
     research_transport: httpx.BaseTransport | None = None,
+    model_transport: httpx.AsyncBaseTransport | None = None,
     semantic_index: SemanticIndex | None = None,
     agent_handoff: AgentHandoff | None = None,
     tool_registry: ToolRegistry | None = None,
+    zotero_database: Path | None = None,
+    zotero_auto_sync_hours: float = 6.0,
+    browser_executor: BrowserExecutor | None = None,
+    browser_controller: BrowserController | None = None,
+    paperqa_service: PaperQAService | None = None,
+    deeptutor_service: DeepTutorService | None = None,
 ) -> FastAPI:
     configured_path = os.getenv("AI_PC_DB_PATH")
     db_path = database_path or (Path(configured_path) if configured_path else PROJECT_DIR / "data" / "ai-pc.sqlite3")
     database = Database(db_path)
     credential_store = ApiCredentialStore(credential_backend)
+    model_gateway = ModelGateway(credential_store, transport=model_transport)
     storage_root = db_path.parent if database_path is not None else Path(os.getenv("AI_PC_ROOT", r"C:\AI-PC"))
     library_roots = tuple(
         allowed_library_roots
@@ -148,12 +277,88 @@ def create_app(
     agent_task_root = Path(
         os.getenv("AI_PC_AGENT_TASK_ROOT", str(storage_root / "data" / "agent" / "tasks"))
     )
+    active_zotero_database = zotero_database or Path(
+        os.getenv("AI_PC_ZOTERO_DB", str(storage_root / "data" / "zotero" / "zotero.sqlite"))
+    )
+    zotero_auto_sync = database_path is None and active_zotero_database.is_file()
+    auto_backup_enabled = database_path is None
     active_agent_handoff = agent_handoff or AgentHandoff(
         agent_workspace,
         agent_task_root,
         allowed_workspace_root=agent_workspace_root,
     )
     active_tool_registry = tool_registry or ToolRegistry(storage_root, active_agent_handoff)
+    active_browser_executor = browser_executor or PlaywrightExecutor()
+    active_browser_controller = browser_controller or BrowserController(
+        active_browser_executor,
+        database,
+        audit=database.audit,
+    )
+    active_paperqa_service = paperqa_service or PaperQAService(
+        database=database,
+        credential_store=credential_store,
+        index_root=index_root,
+        allowed_roots=library_roots,
+    )
+    active_deeptutor_service = deeptutor_service or DeepTutorService(
+        database=database,
+        credential_store=credential_store,
+        auto_bootstrap=database_path is None,
+    )
+
+    def run_zotero_sync(database: Database) -> dict[str, object]:
+        try:
+            snapshot = ZoteroReader(active_zotero_database).snapshot()
+        except ZoteroReadError as error:
+            database.save_zotero_sync(
+                items=[],
+                collection_count=0,
+                attachment_count=0,
+                status="error",
+                error=str(error),
+                replace_items=False,
+            )
+            database.audit("zotero", "sync", None, result="error")
+            raise
+        record = database.save_zotero_sync(
+            items=snapshot.items,
+            collection_count=len(snapshot.collections),
+            attachment_count=snapshot.attachment_count,
+        )
+        database.audit("zotero", "sync", str(record["id"]))
+        return {
+            "status": record["status"],
+            "sync_id": record["id"],
+            "items": record["item_count"],
+            "collections": record["collection_count"],
+            "attachments": record["attachment_count"],
+        }
+
+    async def zotero_auto_sync_loop(database: Database) -> None:
+        interval_seconds = max(60.0, zotero_auto_sync_hours * 3600)
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                await asyncio.to_thread(run_zotero_sync, database)
+            except ZoteroReadError:
+                logger.warning("Zotero automatic sync failed; snapshot preserved")
+            except Exception:
+                logger.exception("Zotero automatic sync failed")
+
+    async def auto_backup_loop(database: Database) -> None:
+        while True:
+            settings = read_backup_settings(database)
+            interval_seconds = max(
+                300.0,
+                float(settings.get("interval_hours") or DEFAULT_BACKUP_INTERVAL_HOURS) * 3600,
+            )
+            await asyncio.sleep(interval_seconds)
+            if not read_backup_settings(database).get("enabled", True):
+                continue
+            try:
+                await asyncio.to_thread(run_auto_backup, database, storage_root)
+            except Exception:
+                logger.exception("Automatic backup failed")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -168,13 +373,34 @@ def create_app(
             database.initialize()
             app.state.database = database
             app.state.credential_store = credential_store
+            app.state.model_gateway = model_gateway
             app.state.literature_client = literature_client
             app.state.semantic_index = active_semantic_index
             app.state.agent_handoff = active_agent_handoff
             app.state.tool_registry = active_tool_registry
+            app.state.paperqa_service = active_paperqa_service
+            auto_sync_task: asyncio.Task[None] | None = None
+            backup_task: asyncio.Task[None] | None = None
+            if zotero_auto_sync:
+                auto_sync_task = asyncio.create_task(zotero_auto_sync_loop(database))
+            if auto_backup_enabled:
+                backup_task = asyncio.create_task(auto_backup_loop(database))
             yield
         finally:
+            if backup_task is not None:
+                backup_task.cancel()
+                try:
+                    await backup_task
+                except asyncio.CancelledError:
+                    pass
+            if auto_sync_task is not None:
+                auto_sync_task.cancel()
+                try:
+                    await auto_sync_task
+                except asyncio.CancelledError:
+                    pass
             literature_client.close()
+            await model_gateway.close()
             if owns_semantic_index and active_semantic_index is not None:
                 active_semantic_index.close()
 
@@ -215,6 +441,22 @@ def create_app(
             return credential_store.is_configured(provider)
         except CredentialStorageError:
             raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
+
+    def paperqa_provider_for_role(request: Request, role: str) -> tuple[str, str | None]:
+        config = next(
+            (
+                item
+                for item in db(request).get_model_roles()
+                if item["role"] == role
+            ),
+            None,
+        )
+        provider = (
+            normalize_provider(config["provider"])
+            if config and config.get("provider")
+            else None
+        )
+        return (provider or "unconfigured"), (config.get("model") if config else None)
 
     def is_loopback_host(host: str | None) -> bool:
         if not host:
@@ -466,6 +708,29 @@ def create_app(
             )
         return hits, False
 
+    def fuse_results(lexical_results: list[dict], semantic_results: list[dict], limit: int) -> list[dict]:
+        fused: dict[tuple[int, object], dict] = {}
+        for source, results in (("lexical", lexical_results), ("semantic", semantic_results)):
+            for rank, result in enumerate(results, start=1):
+                key = (int(result["document_id"]), result["chunk_index"])
+                existing = fused.get(key)
+                if existing is None:
+                    existing = dict(result)
+                    existing["_fusion_score"] = 0.0
+                    fused[key] = existing
+                elif source == "semantic":
+                    existing["semantic_score"] = result["semantic_score"]
+                existing["_fusion_score"] += 1.0 / (60 + rank)
+
+        ordered = sorted(
+            fused.values(),
+            key=lambda item: (-float(item["_fusion_score"]), int(item["document_id"]), str(item["chunk_index"])),
+        )[:limit]
+        for result in ordered:
+            result.pop("_fusion_score", None)
+            result["search_mode"] = "hybrid"
+        return ordered
+
     @app.get("/api/library/search")
     def search_library(
         request: Request,
@@ -488,27 +753,7 @@ def create_app(
             return fallback
 
         lexical_results = lexical_search(database, query, limit)
-        fused: dict[tuple[int, object], dict] = {}
-        for source, results in (("lexical", lexical_results), ("semantic", semantic_results)):
-            for rank, result in enumerate(results, start=1):
-                key = (int(result["document_id"]), result["chunk_index"])
-                existing = fused.get(key)
-                if existing is None:
-                    existing = dict(result)
-                    existing["_fusion_score"] = 0.0
-                    fused[key] = existing
-                elif source == "semantic":
-                    existing["semantic_score"] = result["semantic_score"]
-                existing["_fusion_score"] += 1.0 / (60 + rank)
-
-        ordered = sorted(
-            fused.values(),
-            key=lambda item: (-float(item["_fusion_score"]), int(item["document_id"]), str(item["chunk_index"])),
-        )[:limit]
-        for result in ordered:
-            result.pop("_fusion_score", None)
-            result["search_mode"] = "hybrid"
-        return ordered
+        return fuse_results(lexical_results, semantic_results, limit)
 
     @app.get("/api/library/semantic/status")
     def semantic_index_status(request: Request) -> dict:
@@ -760,6 +1005,283 @@ def create_app(
             parameters,
         )
 
+    def coach_snapshot(request: Request, course_id: int | None) -> dict[str, object]:
+        database = db(request)
+        concepts = learning_progress(request, course_id)
+        now = utc_now()
+        scoped_ids = [int(concept["id"]) for concept in concepts]
+        prerequisite_rows: list[dict[str, object]] = []
+        if scoped_ids:
+            placeholders = ",".join("?" for _ in scoped_ids)
+            prerequisite_rows = database.query_all(
+                f"""
+                SELECT prerequisite.concept_id, prerequisite.prerequisite_id,
+                       prerequisite_concept.name AS prerequisite_name,
+                       prerequisite_concept.mastery AS prerequisite_mastery,
+                       prerequisite_concept.status AS prerequisite_status
+                FROM learning_prerequisites AS prerequisite
+                JOIN learning_concepts AS prerequisite_concept
+                  ON prerequisite_concept.id = prerequisite.prerequisite_id
+                WHERE prerequisite.concept_id IN ({placeholders})
+                ORDER BY prerequisite.concept_id, prerequisite_concept.name
+                """,
+                tuple(scoped_ids),
+            )
+
+        prerequisites_by_concept: dict[int, list[dict[str, object]]] = {}
+        for row in prerequisite_rows:
+            prerequisites_by_concept.setdefault(int(row["concept_id"]), []).append(row)
+
+        concept_reports: list[dict[str, object]] = []
+        weak_foundations: list[dict[str, object]] = []
+        for concept in concepts:
+            concept_id = int(concept["id"])
+            prerequisites = prerequisites_by_concept.get(concept_id, [])
+            missing = [
+                {
+                    "id": int(row["prerequisite_id"]),
+                    "name": str(row["prerequisite_name"]),
+                    "mastery": float(row["prerequisite_mastery"] or 0),
+                    "status": str(row["prerequisite_status"] or "not_started"),
+                }
+                for row in prerequisites
+                if float(row["prerequisite_mastery"] or 0) < 60
+                or str(row["prerequisite_status"] or "not_started") in {"not_started", "review"}
+            ]
+            if missing:
+                weak_foundations.append(
+                    {
+                        "concept_id": concept_id,
+                        "concept_name": concept["name"],
+                        "missing_prerequisites": missing,
+                    }
+                )
+            concept_reports.append(
+                {
+                    **concept,
+                    "prerequisites": prerequisites,
+                    "weak_prerequisites": missing,
+                    "trend": concept_trend(database, concept_id),
+                }
+            )
+
+        due = [c for c in concepts if c.get("due_at") and c["due_at"] <= now]
+        candidates = (
+            due
+            or [c for c in concepts if c["attempt_count"] == 0]
+            or sorted(
+                (c for c in concepts if float(c["mastery"]) < 80),
+                key=lambda c: float(c["mastery"]),
+            )
+            or concepts
+        )
+        next_step: dict[str, object] = {"kind": "none", "concept": None}
+        if candidates:
+            candidate = candidates[0]
+            kind = (
+                "review"
+                if candidate in due
+                else "new"
+                if candidate["attempt_count"] == 0
+                else "practice"
+            )
+            next_step = {"kind": kind, "concept": candidate}
+
+        study_seconds = 0
+        if scoped_ids:
+            placeholders = ",".join("?" for _ in scoped_ids)
+            study_seconds = int(
+                database.query_one(
+                    f"""
+                    SELECT COALESCE(SUM(duration_seconds), 0) AS total
+                    FROM learning_attempts WHERE concept_id IN ({placeholders})
+                    """,
+                    tuple(scoped_ids),
+                )["total"]
+            )
+        mastery = round(sum(float(c["mastery"]) for c in concepts) / len(concepts), 1) if concepts else None
+        return {
+            "generated_at": now,
+            "summary": {
+                "concept_count": len(concepts),
+                "attempt_count": sum(int(c["attempt_count"]) for c in concepts),
+                "due_count": len(due),
+                "mastery": mastery,
+                "weak_foundation_count": len(weak_foundations),
+                "study_seconds": study_seconds,
+            },
+            "concepts": concept_reports,
+            "weak_foundations": weak_foundations,
+            "next_step": next_step,
+            "due": due,
+            "scoped_ids": scoped_ids,
+            "study_seconds": study_seconds,
+            "database": database,
+        }
+
+    @app.get("/api/coach/report")
+    def coach_report(
+        request: Request,
+        course_id: int | None = Query(default=None, gt=0),
+    ) -> dict[str, object]:
+        snapshot = coach_snapshot(request, course_id)
+        return {
+            "generated_at": snapshot["generated_at"],
+            "summary": snapshot["summary"],
+            "concepts": snapshot["concepts"],
+            "weak_foundations": snapshot["weak_foundations"],
+            "next_step": snapshot["next_step"],
+        }
+
+    @app.get("/api/coach/plan")
+    def coach_plan(
+        request: Request,
+        course_id: int | None = Query(default=None, gt=0),
+        days: int = Query(default=7, ge=1, le=14),
+    ) -> dict[str, object]:
+        snapshot = coach_snapshot(request, course_id)
+        database: Database = snapshot["database"]
+        concepts: list[dict[str, object]] = snapshot["concepts"]
+        today = datetime.now().date()
+
+        due_items: list[tuple[dict[str, object], date]] = []
+        for concept in concepts:
+            due_at = concept.get("due_at")
+            if not due_at:
+                continue
+            try:
+                due_datetime = datetime.fromisoformat(str(due_at))
+            except ValueError:
+                continue
+            if due_datetime.tzinfo is None:
+                due_datetime = due_datetime.replace(tzinfo=timezone.utc)
+            due_day = due_datetime.astimezone().date()
+            if due_day < today:
+                due_day = today
+            due_items.append((concept, due_day))
+        due_items.sort(key=lambda item: item[1].isoformat() + str(item[0].get("due_at", "")))
+
+        new_pool = [c for c in concepts if int(c["attempt_count"]) == 0]
+        foundation_ids: set[int] = set()
+        for item in snapshot["weak_foundations"]:
+            for prerequisite in item["missing_prerequisites"]:
+                foundation_ids.add(int(prerequisite["id"]))
+        foundation_by_id = {int(c["id"]): c for c in concepts}
+
+        max_reviews_per_day = 5
+        max_new_per_day = 2
+        max_foundations_per_day = 2
+        planned_review_ids: set[int] = set()
+        planned_new_ids: set[int] = set()
+        planned_foundation_ids: set[int] = set()
+        plan_days: list[dict[str, object]] = []
+
+        for offset in range(days):
+            day = today + timedelta(days=offset)
+            reviews: list[dict[str, object]] = []
+            for concept, due_day in due_items:
+                if due_day > day:
+                    continue
+                concept_id = int(concept["id"])
+                if concept_id in planned_review_ids or len(reviews) >= max_reviews_per_day:
+                    continue
+                reviews.append(concept)
+                planned_review_ids.add(concept_id)
+
+            new_concepts: list[dict[str, object]] = []
+            for concept in new_pool:
+                concept_id = int(concept["id"])
+                if concept_id in planned_new_ids or concept_id in planned_review_ids:
+                    continue
+                if len(new_concepts) >= max_new_per_day:
+                    break
+                new_concepts.append(concept)
+                planned_new_ids.add(concept_id)
+
+            foundations: list[dict[str, object]] = []
+            for concept_id in sorted(foundation_ids):
+                if concept_id in planned_foundation_ids or concept_id in planned_review_ids or concept_id in planned_new_ids:
+                    continue
+                concept = foundation_by_id.get(concept_id)
+                if concept is None or len(foundations) >= max_foundations_per_day:
+                    continue
+                foundations.append(concept)
+                planned_foundation_ids.add(concept_id)
+
+            plan_days.append(
+                {
+                    "date": day.isoformat(),
+                    "reviews": reviews,
+                    "new_concepts": new_concepts,
+                    "foundation_concepts": foundations,
+                }
+            )
+
+        scoped_ids = snapshot["scoped_ids"]
+        average_attempt_seconds = 600.0
+        if scoped_ids:
+            placeholders = ",".join("?" for _ in scoped_ids)
+            average_row = database.query_one(
+                f"""
+                SELECT AVG(duration_seconds) AS average_seconds
+                FROM learning_attempts
+                WHERE concept_id IN ({placeholders}) AND duration_seconds IS NOT NULL
+                """,
+                tuple(scoped_ids),
+            )
+            if average_row and average_row["average_seconds"] is not None:
+                average_attempt_seconds = float(average_row["average_seconds"])
+
+        planned_reviews = sum(len(day["reviews"]) for day in plan_days)
+        planned_new = sum(len(day["new_concepts"]) for day in plan_days)
+        planned_foundations = sum(len(day["foundation_concepts"]) for day in plan_days)
+        planned_total = planned_reviews + planned_new + planned_foundations
+        estimated_minutes = round(planned_total * average_attempt_seconds / 60)
+
+        return {
+            "generated_at": snapshot["generated_at"],
+            "start_date": today.isoformat(),
+            "days": plan_days,
+            "summary": {
+                "planned_reviews": planned_reviews,
+                "planned_new_concepts": planned_new,
+                "planned_foundations": planned_foundations,
+                "estimated_minutes": estimated_minutes,
+                "average_attempt_minutes": round(average_attempt_seconds / 60, 1),
+                "due_count": len(snapshot["due"]),
+                "new_count": len(new_pool),
+                "weak_foundation_count": len(snapshot["weak_foundations"]),
+            },
+        }
+
+    @app.get("/api/coach/context")
+    def coach_context(
+        request: Request,
+        question: str = Query(min_length=1, max_length=500),
+        course_id: int | None = Query(default=None, gt=0),
+        limit: int = Query(default=8, ge=1, le=20),
+    ) -> dict[str, object]:
+        database = db(request)
+        query = question.strip()
+        lexical_results = lexical_search(database, query, limit)
+        semantic_results, semantic_degraded = semantic_search(request, query, limit)
+        evidence = fuse_results(lexical_results, semantic_results, limit)
+        concepts = learning_progress(request, course_id)
+        now = utc_now()
+        due = [c for c in concepts if c.get("due_at") and c["due_at"] <= now]
+        return {
+            "question": query,
+            "generated_at": now,
+            "semantic_degraded": semantic_degraded,
+            "evidence": evidence,
+            "learning_state": {
+                "course_id": course_id,
+                "concept_count": len(concepts),
+                "due_count": len(due),
+                "concepts": concepts,
+            },
+        }
+
     @app.get("/api/research/projects")
     def list_projects(request: Request) -> list[dict]:
         return db(request).query_all("SELECT * FROM research_projects ORDER BY updated_at DESC, id DESC")
@@ -953,6 +1475,11 @@ def create_app(
     @app.put("/api/settings")
     def update_settings(payload: SettingsUpdate, request: Request) -> dict[str, str]:
         database = db(request)
+        canonical = credential_provider(payload.provider)
+        try:
+            build_probe_url(canonical, str(payload.endpoint))
+        except ModelGatewayError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
         now = utc_now()
         values = {
             "provider": payload.provider,
@@ -1005,6 +1532,519 @@ def create_app(
             raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
         db(request).audit("credentials", "delete", canonical)
         return {"provider": canonical, "configured": False}
+
+    @app.post("/api/models/test")
+    async def test_model_connection(
+        payload: ModelConnectionTestRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        canonical = credential_provider(payload.provider)
+        database = db(request)
+        try:
+            result = await request.app.state.model_gateway.probe(canonical, str(payload.endpoint))
+        except ModelProbeCancelled as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="connection_test",
+                source="dashboard_settings",
+                duration_ms=error.duration_ms,
+                status="cancelled",
+                error_code="cancelled",
+            )
+            database.audit("models", "connection_test", canonical, result="cancelled")
+            raise asyncio.CancelledError from None
+        except CredentialStorageError:
+            database.record_model_call(
+                provider=canonical,
+                operation="connection_test",
+                source="dashboard_settings",
+                duration_ms=0,
+                status="error",
+                error_code="credential_store_unavailable",
+            )
+            database.audit("models", "connection_test", canonical, result="credential_store_unavailable")
+            raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
+        except ModelGatewayError as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="connection_test",
+                source="dashboard_settings",
+                duration_ms=error.duration_ms,
+                status="error",
+                error_code=error.code,
+            )
+            database.audit("models", "connection_test", canonical, result=error.code)
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+        database.record_model_call(
+            provider=canonical,
+            operation="connection_test",
+            source="dashboard_settings",
+            duration_ms=result.latency_ms,
+            status="success",
+        )
+        database.audit("models", "connection_test", canonical)
+        return {
+            "provider": result.provider,
+            "status": "ok",
+            "latency_ms": result.latency_ms,
+        }
+
+    @app.get("/api/models/roles")
+    def list_model_roles(request: Request) -> dict[str, list[dict[str, object]]]:
+        result: list[dict[str, object]] = []
+        for role in db(request).get_model_roles():
+            canonical = normalize_provider(role["provider"])
+            credential_configured = False
+            if canonical is not None:
+                credential_configured = is_credential_configured(canonical)
+            result.append(
+                {
+                    "role": role["role"],
+                    "provider": role["provider"],
+                    "model": role["model"],
+                    "endpoint": role["endpoint"],
+                    "credential_configured": credential_configured,
+                    "ready": bool(role["model"]) and canonical is not None and credential_configured,
+                }
+            )
+        result.append(
+            {
+                "role": "embedding",
+                "provider": "local",
+                "model": "BAAI/bge-small-zh-v1.5",
+                "endpoint": "",
+                "credential_configured": False,
+                "ready": True,
+                "local_only": True,
+            }
+        )
+        return {"roles": result}
+
+    @app.put("/api/models/roles/{role}")
+    def update_model_role(role: str, payload: ModelRoleUpdate, request: Request) -> dict[str, object]:
+        if role == "embedding":
+            raise HTTPException(
+                status_code=422,
+                detail="Embedding uses the local model and cannot be configured as an external route",
+            )
+        if role not in MODEL_ROLES:
+            raise HTTPException(status_code=422, detail="Unsupported model role")
+        canonical = credential_provider(payload.provider)
+        endpoint = str(payload.endpoint)
+        try:
+            build_chat_url(canonical, endpoint, payload.model)
+        except ModelGatewayError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+        database = db(request)
+        database.save_model_role(
+            role=role,
+            provider=payload.provider,
+            model=payload.model,
+            endpoint=endpoint,
+        )
+        database.audit("models", "update_role", role)
+        return {
+            "role": role,
+            "provider": canonical,
+            "model": payload.model,
+            "endpoint": endpoint,
+        }
+
+    @app.post("/api/models/generate")
+    async def generate_model_text(payload: ModelGenerateRequest, request: Request) -> dict[str, object]:
+        role = payload.role.strip()
+        if role == "embedding":
+            raise HTTPException(status_code=422, detail="Embedding role does not generate text")
+        if role not in MODEL_ROLES:
+            raise HTTPException(status_code=422, detail="Unsupported model role")
+        database = db(request)
+        roles = {item["role"]: item for item in database.get_model_roles()}
+        config = roles.get(role)
+        canonical = (
+            credential_provider(config["provider"])
+            if config and config.get("provider")
+            else None
+        )
+        if not config or not config.get("model") or canonical is None:
+            database.record_model_call(
+                provider=canonical or "unconfigured",
+                operation="generate",
+                source="dashboard_generation",
+                duration_ms=0,
+                status="error",
+                error_code="role_not_configured",
+                role=role,
+            )
+            database.audit("models", "generate", role, result="role_not_configured")
+            raise HTTPException(status_code=409, detail="Model role is not configured")
+
+        try:
+            result = await request.app.state.model_gateway.generate(
+                provider=canonical,
+                endpoint=config["endpoint"],
+                model=config["model"],
+                prompt=payload.prompt,
+                system=payload.system,
+                max_tokens=payload.max_tokens,
+                temperature=payload.temperature,
+                role=role,
+            )
+        except ModelRequestCancelled as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="generate",
+                source="dashboard_generation",
+                duration_ms=error.duration_ms,
+                status="cancelled",
+                error_code="cancelled",
+                role=role,
+            )
+            database.audit("models", "generate", role, result="cancelled")
+            raise asyncio.CancelledError from None
+        except CredentialStorageError:
+            database.record_model_call(
+                provider=canonical,
+                operation="generate",
+                source="dashboard_generation",
+                duration_ms=0,
+                status="error",
+                error_code="credential_store_unavailable",
+                role=role,
+            )
+            database.audit("models", "generate", role, result="credential_store_unavailable")
+            raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
+        except ModelGatewayError as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="generate",
+                source="dashboard_generation",
+                duration_ms=error.duration_ms,
+                status="error",
+                error_code=error.code,
+                role=role,
+            )
+            database.audit("models", "generate", role, result=error.code)
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+        database.record_model_call(
+            provider=result.provider,
+            operation="generate",
+            source="dashboard_generation",
+            duration_ms=result.latency_ms,
+            status="success",
+            model=result.model,
+            role=result.role,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+        )
+        database.audit("models", "generate", role)
+        return {
+            "role": result.role,
+            "provider": result.provider,
+            "model": result.model,
+            "status": "ok",
+            "content": result.content,
+            "latency_ms": result.latency_ms,
+            "usage": {
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.total_tokens,
+            },
+        }
+
+    @app.get("/api/zotero/status")
+    def zotero_status(request: Request) -> dict[str, object]:
+        database = db(request)
+        status = database.get_zotero_status()
+        return {
+            "available": active_zotero_database.is_file(),
+            "database_path": str(active_zotero_database),
+            "last_sync": status["last_sync"],
+            "item_count": status["item_count"],
+            "auto_sync_enabled": zotero_auto_sync,
+            "auto_sync_interval_hours": zotero_auto_sync_hours,
+        }
+
+    @app.post("/api/zotero/sync", status_code=status.HTTP_201_CREATED)
+    def sync_zotero(request: Request) -> dict[str, object]:
+        database = db(request)
+        try:
+            return run_zotero_sync(database)
+        except ZoteroReadError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from None
+
+    @app.get("/api/paperqa/status")
+    def paperqa_status(request: Request) -> dict[str, object]:
+        try:
+            return request.app.state.paperqa_service.status()
+        except CredentialStorageError:
+            raise HTTPException(
+                status_code=503, detail="Credential storage is unavailable"
+            ) from None
+
+    @app.post("/api/paperqa/index", status_code=status.HTTP_201_CREATED)
+    async def paperqa_index(
+        payload: PaperQAIndexRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        if payload.role not in SUPPORTED_PAPERQA_ROLES:
+            raise HTTPException(status_code=422, detail="该模型角色不支持论文问答")
+        database = db(request)
+        try:
+            source_path = resolve_source_path(payload.path, library_roots)
+            source_files = discover_source_files(source_path, library_roots)
+        except PermissionError as error:
+            database.audit("paperqa", "index", payload.path, result="path_forbidden")
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except FileNotFoundError as error:
+            database.audit("paperqa", "index", payload.path, result="path_not_found")
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            database.audit("paperqa", "index", payload.path, result="invalid_path")
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        try:
+            result = await request.app.state.paperqa_service.build_index(source_files)
+        except PaperQAError as error:
+            database.audit("paperqa", "index", payload.path, result=error.code)
+            raise HTTPException(
+                status_code=error.status_code, detail=error.detail
+            ) from None
+        database.audit("paperqa", "index", payload.path)
+        return result
+
+    @app.post("/api/paperqa/ask")
+    async def paperqa_ask(
+        payload: PaperQAAskRequest,
+        request: Request,
+    ) -> dict[str, object]:
+        if payload.role not in SUPPORTED_PAPERQA_ROLES:
+            raise HTTPException(status_code=422, detail="该模型角色不支持论文问答")
+        database = db(request)
+        provider, model = paperqa_provider_for_role(request, payload.role)
+        try:
+            result = await request.app.state.paperqa_service.ask(
+                question=payload.question,
+                role=payload.role,
+                max_tokens=payload.max_tokens,
+                temperature=payload.temperature,
+            )
+        except PaperQAError as error:
+            database.record_model_call(
+                provider=provider,
+                operation="paperqa_ask",
+                source="dashboard_paperqa",
+                duration_ms=0,
+                status="error",
+                error_code=error.code,
+                role=payload.role,
+                model=model,
+            )
+            database.audit("paperqa", "ask", payload.role, result=error.code)
+            raise HTTPException(
+                status_code=error.status_code, detail=error.detail
+            ) from None
+        except CredentialStorageError:
+            database.record_model_call(
+                provider=provider,
+                operation="paperqa_ask",
+                source="dashboard_paperqa",
+                duration_ms=0,
+                status="error",
+                error_code="credential_store_unavailable",
+                role=payload.role,
+                model=model,
+            )
+            database.audit(
+                "paperqa",
+                "ask",
+                payload.role,
+                result="credential_store_unavailable",
+            )
+            raise HTTPException(
+                status_code=503, detail="Credential storage is unavailable"
+            ) from None
+        database.record_model_call(
+            provider=provider,
+            operation="paperqa_ask",
+            source="dashboard_paperqa",
+            duration_ms=int(result["latency_ms"]),
+            status="success",
+            role=payload.role,
+            model=result.get("model") or model,
+            prompt_tokens=result.get("prompt_tokens"),
+            completion_tokens=result.get("completion_tokens"),
+            total_tokens=result.get("total_tokens"),
+        )
+        database.audit("paperqa", "ask", payload.role)
+        return result
+
+    @app.get("/api/ops/status")
+    def ops_status(request: Request) -> dict[str, object]:
+        database = db(request)
+        quick_check = database.quick_check()
+        usage = shutil.disk_usage(storage_root)
+        free_percent = round(usage.free / usage.total * 100, 1) if usage.total else 0.0
+        backup_dir = storage_root / "backups" / "database"
+        latest_backup: dict[str, object] | None = None
+        if backup_dir.is_dir():
+            candidates = sorted(
+                backup_dir.glob("ai-pc-*.sqlite3"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+            if candidates:
+                latest = candidates[0]
+                age_days = max(
+                    0.0,
+                    (datetime.now() - datetime.fromtimestamp(latest.stat().st_mtime)).total_seconds()
+                    / 86_400,
+                )
+                latest_backup = {
+                    "path": str(latest),
+                    "size_bytes": latest.stat().st_size,
+                    "age_days": round(age_days, 1),
+                }
+
+        warnings: list[str] = []
+        if quick_check != "ok":
+            warnings.append("数据库完整性检查未通过")
+        if free_percent < 15 or usage.free < 20 * 1024**3:
+            warnings.append("磁盘剩余空间低于建议阈值")
+        if latest_backup is None:
+            warnings.append("尚未创建一致性备份")
+        elif float(latest_backup["age_days"]) > 7:
+            warnings.append("最近一次备份已超过 7 天")
+
+        return {
+            "database": {
+                "path": str(database.path),
+                "size_bytes": database.path.stat().st_size,
+                "quick_check": quick_check,
+            },
+            "storage": {
+                "root": str(storage_root),
+                "total_bytes": usage.total,
+                "free_bytes": usage.free,
+                "free_percent": free_percent,
+            },
+            "backup": latest_backup,
+            "backup_settings": read_backup_settings(database),
+            "warnings": warnings,
+            "ok": not warnings,
+        }
+
+    @app.post("/api/ops/backup", status_code=status.HTTP_201_CREATED)
+    def run_backup(request: Request) -> dict[str, object]:
+        database = db(request)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        destination = storage_root / "backups" / "database" / f"ai-pc-{stamp}.sqlite3"
+        try:
+            database.backup_to(destination)
+            quick_check = database.verify_backup(destination)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Database backup failed") from None
+        if quick_check != "ok":
+            raise HTTPException(status_code=503, detail="Database backup failed verification")
+        database.audit("ops", "backup", destination.name)
+        return {
+            "path": str(destination),
+            "size_bytes": destination.stat().st_size,
+            "quick_check": quick_check,
+        }
+
+    @app.get("/api/ops/backup/settings")
+    def get_backup_settings(request: Request) -> dict[str, object]:
+        return read_backup_settings(db(request))
+
+    @app.put("/api/ops/backup/settings")
+    def update_backup_settings(
+        payload: BackupSettingsUpdate,
+        request: Request,
+    ) -> dict[str, object]:
+        return save_backup_settings(
+            db(request),
+            enabled=payload.enabled,
+            interval_hours=payload.interval_hours,
+            keep_count=payload.keep_count,
+        )
+
+    @app.get("/api/deeptutor/status")
+    def deeptutor_status() -> dict[str, object]:
+        return active_deeptutor_service.status()
+
+    @app.post("/api/deeptutor/run")
+    def deeptutor_run(payload: DeepTutorRunRequest) -> dict[str, object]:
+        try:
+            return active_deeptutor_service.run(
+                capability=payload.capability,
+                prompt=payload.prompt,
+                role=payload.role,
+                language=payload.language,
+                session_id=payload.session_id,
+                timeout_seconds=float(payload.timeout_seconds),
+            )
+        except DeepTutorError as error:
+            raise HTTPException(
+                status_code=error.status_code,
+                detail=error.detail,
+            ) from None
+
+    @app.get("/api/browser/status")
+    def browser_status() -> dict[str, object]:
+        return active_browser_controller.status()
+
+    @app.put("/api/browser/allowlist")
+    def browser_allowlist(payload: BrowserAllowlistUpdate, request: Request) -> dict[str, object]:
+        domains = active_browser_controller.set_allowlist(payload.domains)
+        db(request).audit("browser", "update_allowlist", None)
+        return {"allowlist": domains}
+
+    @app.get("/api/browser/actions")
+    def browser_actions(
+        limit: int = Query(default=20, ge=1, le=50),
+    ) -> list[dict[str, object]]:
+        return active_browser_controller.list_actions(limit)
+
+    @app.post("/api/browser/actions", status_code=status.HTTP_202_ACCEPTED)
+    async def browser_submit(payload: BrowserActionCreate) -> dict[str, object]:
+        try:
+            return await active_browser_controller.submit(
+                action=payload.action,
+                url=payload.url,
+                selector=payload.selector,
+                text=payload.text,
+                timeout_ms=payload.timeout_ms,
+                source="dashboard",
+            )
+        except BrowserError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+    @app.post("/api/browser/actions/{action_id}/approve")
+    async def browser_approve(action_id: str) -> dict[str, object]:
+        try:
+            return await active_browser_controller.approve(action_id)
+        except BrowserError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+    @app.post("/api/browser/actions/{action_id}/reject")
+    async def browser_reject(action_id: str) -> dict[str, object]:
+        try:
+            return await active_browser_controller.reject(action_id)
+        except BrowserError as error:
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+    @app.post("/api/browser/stop")
+    async def browser_stop() -> dict[str, object]:
+        await active_browser_controller.stop()
+        return {"stopped": True}
+
+    @app.post("/api/browser/resume")
+    async def browser_resume() -> dict[str, object]:
+        await active_browser_controller.resume()
+        return {"stopped": False}
 
     @app.get("/api/audit")
     def list_audit(request: Request, limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:

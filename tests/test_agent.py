@@ -115,7 +115,7 @@ def test_agent_status_detects_cline_and_approved_workspace(tmp_path: Path) -> No
         assert tools["nexus-core"]["status"] == "ready"
         assert tools["vscode"]["status"] == "ready"
         assert tools["cline"]["version"] == "4.1.4"
-        assert tools["paperqa2"]["status"] == "planned"
+        assert tools["paperqa2"]["status"] == "ready"
 
 
 def test_handoff_writes_integrity_checked_task_and_minimal_uri(tmp_path: Path) -> None:

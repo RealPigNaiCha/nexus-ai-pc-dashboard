@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Nexus AI-PC</title>
-  <link rel="stylesheet" href="styles.css?v=20260806-agent">
+  <link rel="stylesheet" href="styles.css?v=20260807-claude">
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-  <script src="app.js?v=20260806-agent" defer></script>
+  <script src="app.js?v=20260807-claude" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -21,22 +21,22 @@
       </div>
 
       <nav class="primary-nav">
-        <button class="nav-item is-active" type="button" data-page="overview" aria-current="page">
+        <button class="nav-item is-active" type="button" data-page="overview" aria-current="page" title="总览" aria-label="总览">
           <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
         </button>
-        <button class="nav-item" type="button" data-page="learning">
+        <button class="nav-item" type="button" data-page="learning" title="学习" aria-label="学习">
           <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span>
         </button>
-        <button class="nav-item" type="button" data-page="library">
+        <button class="nav-item" type="button" data-page="library" title="资料库" aria-label="资料库">
           <i data-lucide="library" aria-hidden="true"></i><span>资料库</span>
         </button>
-        <button class="nav-item" type="button" data-page="research">
+        <button class="nav-item" type="button" data-page="research" title="科研" aria-label="科研">
           <i data-lucide="microscope" aria-hidden="true"></i><span>科研</span>
         </button>
-        <button class="nav-item" type="button" data-page="coding">
+        <button class="nav-item" type="button" data-page="coding" title="编程" aria-label="编程">
           <i data-lucide="square-terminal" aria-hidden="true"></i><span>编程</span>
         </button>
-        <button class="nav-item" type="button" data-page="automation">
+        <button class="nav-item" type="button" data-page="automation" title="自动化" aria-label="自动化">
           <i data-lucide="workflow" aria-hidden="true"></i><span>自动化</span>
         </button>
       </nav>
@@ -44,7 +44,7 @@
       <div class="nav-spacer"></div>
 
       <nav class="secondary-nav">
-        <button class="nav-item" type="button" data-page="settings">
+        <button class="nav-item" type="button" data-page="settings" title="设置" aria-label="设置">
           <i data-lucide="settings-2" aria-hidden="true"></i><span>设置</span>
         </button>
       </nav>
@@ -75,9 +75,6 @@
           </label>
           <button class="icon-button" id="theme-toggle" type="button" aria-label="切换主题" data-tooltip="切换主题">
             <i data-lucide="moon" aria-hidden="true"></i>
-          </button>
-          <button class="primary-button" id="ask-ai" type="button">
-            <i data-lucide="sparkles" aria-hidden="true"></i><span>询问助手</span>
           </button>
         </div>
       </header>
@@ -142,54 +139,25 @@
             </div>
           </section>
 
-          <div class="two-column-layout overview-columns">
-            <section class="panel" aria-labelledby="today-plan-title">
-              <div class="panel-heading">
-                <div><p class="section-kicker">计划 · 示例</p><h2 id="today-plan-title">今日三件事</h2></div>
-                <button class="icon-button compact" type="button" data-tooltip="添加任务" aria-label="添加任务"><i data-lucide="plus" aria-hidden="true"></i></button>
-              </div>
-              <ol class="task-list">
-                <li><button class="task-check is-done" type="button" aria-label="标记任务未完成"><i data-lucide="check" aria-hidden="true"></i></button><div><strong>复习数列极限</strong><span>已完成 · 22 分钟</span></div></li>
-                <li><button class="task-check" type="button" aria-label="标记任务完成"></button><div><strong>筛选检索到的 8 篇论文</strong><span>科研 · 预计 30 分钟</span></div></li>
-                <li><button class="task-check" type="button" aria-label="标记任务完成"></button><div><strong>审查 Agent 生成的补丁</strong><span>编程 · 等待确认</span></div></li>
-              </ol>
-            </section>
-
-            <section class="panel" aria-labelledby="week-title">
-              <div class="panel-heading">
-                <div><p class="section-kicker">统计 · 示例</p><h2 id="week-title">本周投入</h2></div>
-                <strong class="panel-total">示例 6.8 小时</strong>
-              </div>
-              <div class="weekly-chart" role="img" aria-label="周一到周日学习与科研时长柱状图">
-                <div><span style="--bar:42%"></span><small>一</small></div>
-                <div><span style="--bar:68%"></span><small>二</small></div>
-                <div><span style="--bar:51%"></span><small>三</small></div>
-                <div><span style="--bar:86%"></span><small>四</small></div>
-                <div><span style="--bar:61%"></span><small>五</small></div>
-                <div><span style="--bar:34%"></span><small>六</small></div>
-                <div><span style="--bar:14%"></span><small>日</small></div>
-              </div>
-              <div class="chart-legend"><span><i class="legend-swatch learning-swatch"></i>学习 4.2h</span><span><i class="legend-swatch research-swatch"></i>科研 2.6h</span></div>
-            </section>
-          </div>
+          <section class="panel overview-tasks-panel" aria-labelledby="overview-tasks-title">
+            <div class="panel-heading"><div><p class="section-kicker">本地任务</p><h2 id="overview-tasks-title">今日任务</h2></div><span class="status-label is-neutral" id="overview-tasks-state">读取中</span></div>
+            <ul class="task-list" id="overview-task-list">
+              <li class="overview-task-empty">正在汇总到期复习与待交接任务…</li>
+            </ul>
+          </section>
 
           <section class="activity-section" aria-labelledby="activity-title">
             <div class="section-heading">
-              <div><p class="section-kicker">记录 · 示例</p><h2 id="activity-title">最近活动</h2></div>
-              <button class="text-button" type="button">查看全部</button>
+              <div><p class="section-kicker">审计记录</p><h2 id="activity-title">最近活动</h2></div>
             </div>
             <div class="table-wrap">
               <table>
-                <thead><tr><th>时间</th><th>活动</th><th>所属模块</th><th>状态</th></tr></thead>
-                <tbody>
-                  <tr><td>20:46</td><td>《高等数学》第 2 章完成增量索引</td><td>资料库</td><td><span class="status-label is-success">完成</span></td></tr>
-                  <tr><td>20:31</td><td>导数概念掌握度从 61% 更新至 68%</td><td>学习</td><td><span class="status-label is-neutral">已记录</span></td></tr>
-                  <tr><td>19:58</td><td>文献证据矩阵新增 3 条结论</td><td>科研</td><td><span class="status-label is-success">完成</span></td></tr>
-                  <tr><td>19:12</td><td>修复检索页筛选逻辑</td><td>编程</td><td><span class="status-label is-warning">待审查</span></td></tr>
-                </tbody>
+                <thead><tr><th>时间</th><th>活动</th><th>模块</th><th>结果</th></tr></thead>
+                <tbody id="overview-activity-body"><tr><td colspan="4"><span class="status-label is-neutral">读取中</span></td></tr></tbody>
               </table>
             </div>
           </section>
+
         </section>
 
         <section class="page" id="page-learning" data-title="学习" data-eyebrow="个人进度">
@@ -240,6 +208,28 @@
               <div class="lesson-focus learning-next-focus" id="learning-next-focus" hidden></div>
             </section>
           </div>
+
+          <section class="panel" aria-labelledby="coach-title">
+            <div class="panel-heading"><div><p class="section-kicker">学习教练</p><h2 id="coach-title">可解释进度报告</h2></div><span class="status-label is-neutral" id="coach-state">待读取</span></div>
+            <div id="coach-report" class="coach-report">
+              <div class="learning-empty"><i data-lucide="book-open-check" aria-hidden="true"></i><div><strong>暂无教练报告</strong><span>创建课程和知识点并记录答题后，这里会解释掌握度变化、薄弱前置和下一步。</span></div></div>
+            </div>
+            <div class="model-role-heading coach-plan-heading"><strong>未来 7 天计划</strong><span class="status-label is-neutral" id="coach-plan-state">待读取</span></div>
+            <div id="coach-plan" class="coach-plan">
+              <div class="learning-empty"><i data-lucide="calendar-range" aria-hidden="true"></i><div><strong>暂无周计划</strong><span>创建知识点并记录答题后，这里会生成未来 7 天的安排。</span></div></div>
+            </div>
+          </section>
+
+          <section class="panel deeptutor-panel" aria-labelledby="deeptutor-title">
+            <div class="panel-heading"><div><p class="section-kicker">DeepTutor</p><h2 id="deeptutor-title">教学与研究问答</h2><p class="supporting-text">外部可替换教学能力；先配置模型角色和密钥，调用会写入审计与模型调用记录，密钥不会持久化到 DeepTutor 配置。</p></div><span class="status-label is-neutral" id="deeptutor-state">读取中</span></div>
+            <div class="settings-fields deeptutor-fields">
+              <label><span>能力</span><select id="deeptutor-capability"><option value="chat">自由对话</option><option value="deep_solve">深度解题</option><option value="deep_question">生成题目</option><option value="deep_research">深度研究</option></select></label>
+              <label><span>模型角色</span><select id="deeptutor-role"><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
+              <label class="wide-field"><span>提示词</span><textarea id="deeptutor-prompt" rows="3" maxlength="4000" placeholder="例如：请用苏格拉底式提问帮我理解数列极限"></textarea></label>
+              <div class="field-action wide-field"><button class="primary-button" id="run-deeptutor" type="button"><i data-lucide="sparkles" aria-hidden="true"></i><span>运行 DeepTutor</span></button><span id="deeptutor-message" aria-live="polite">等待配置模型角色</span></div>
+            </div>
+            <div class="deeptutor-output" id="deeptutor-output" hidden></div>
+          </section>
 
           <section class="panel question-panel" aria-labelledby="attempt-title" id="learning-attempt-panel">
             <div class="panel-heading"><div><p class="section-kicker">答题证据</p><h2 id="attempt-title">记录一次练习或复习</h2></div><span class="status-label is-neutral" id="learning-attempt-state">保存到本地数据库</span></div>
@@ -311,7 +301,6 @@
               <div class="panel-heading"><div><p class="section-kicker">存储与索引</p><h2 id="storage-title">C 盘空间</h2></div><button class="icon-button compact" id="semantic-rebuild" type="button" aria-label="重建语义索引" data-tooltip="重建语义索引"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></div>
               <div class="storage-meter"><div><span id="storage-meter-fill" style="width:0"></span></div><p><strong id="storage-used">读取中</strong> / <span id="storage-total">—</span></p></div>
               <dl class="storage-breakdown"><div><dt><i class="legend-swatch learning-swatch"></i>剩余空间</dt><dd id="storage-free">—</dd></div><div><dt><i class="legend-swatch research-swatch"></i>语义索引</dt><dd id="semantic-index-state">读取中</dd></div><div><dt><i class="legend-swatch code-swatch"></i>AI-PC 根目录</dt><dd id="storage-root">C:\AI-PC</dd></div></dl>
-              <button class="secondary-button full-width" type="button"><i data-lucide="archive-restore" aria-hidden="true"></i><span>立即备份</span></button>
             </aside>
           </div>
         </section>
@@ -346,6 +335,33 @@
               </ul>
             </aside>
           </div>
+
+          <section class="panel paperqa-panel" aria-labelledby="paperqa-title">
+            <div class="panel-heading">
+              <div><p class="section-kicker">PaperQA2 · 本地论文问答</p><h2 id="paperqa-title">对已索引论文提问</h2></div>
+              <span class="status-label is-neutral" id="paperqa-status">读取状态</span>
+            </div>
+            <details class="paperqa-details">
+              <summary>展开论文问答</summary>
+              <div class="paperqa-steps">
+                <form class="paperqa-index-form" id="paperqa-index-form">
+                  <label class="paperqa-field"><span>1 · 导入路径（PDF / Markdown / TXT 文件或目录）</span><input id="paperqa-index-path" type="text" required maxlength="32000" placeholder="例如 C:\AI-PC\data\library\original" autocomplete="off"></label>
+                  <button class="secondary-button" type="submit"><i data-lucide="library-big" aria-hidden="true"></i><span>建立索引</span></button>
+                </form>
+                <p class="paperqa-hint">索引保存在 <code id="paperqa-index-path-label">…</code>，仅读取资料库与 Vault 内的文件。</p>
+                <form class="paperqa-ask-form" id="paperqa-ask-form">
+                  <label class="paperqa-field"><span>2 · 输入问题</span><input id="paperqa-question" type="text" required maxlength="2000" placeholder="例如：这篇论文提出的方法在哪些场景下有效？" autocomplete="off"></label>
+                  <label class="paperqa-field"><span>模型角色</span><select id="paperqa-role"><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
+                  <button class="primary-button" type="submit"><i data-lucide="sparkles" aria-hidden="true"></i><span>提问</span></button>
+                </form>
+                <p class="research-search-feedback" id="paperqa-feedback" role="status" aria-live="polite">建立索引后可对论文提问。</p>
+                <div class="paperqa-result" id="paperqa-result" hidden>
+                  <div class="paperqa-answer"><strong>回答</strong><p id="paperqa-answer-text"></p></div>
+                  <details class="paperqa-context"><summary>查看引用来源与证据（<span id="paperqa-source-count">0</span>）</summary><div id="paperqa-sources"></div></details>
+                </div>
+              </div>
+            </details>
+          </section>
 
           <section class="panel literature-panel" aria-labelledby="literature-title">
             <div class="panel-heading">
@@ -413,15 +429,16 @@
 
         <section class="page" id="page-automation" data-title="自动化" data-eyebrow="任务与工具">
           <div class="page-intro">
-            <div><p class="section-kicker">流程设计 · 执行器规划中</p><h2>规划重复工作</h2><p class="supporting-text">当前没有自动化调度器；以下仅展示目标流程，不会定时运行或执行外部操作。</p></div>
-            <button class="primary-button" id="new-automation" type="button" disabled><i data-lucide="plus" aria-hidden="true"></i><span>创建流程（规划中）</span></button>
+            <div><p class="section-kicker">受控自动化</p><h2>浏览器自动化</h2><p class="supporting-text">动作必须经过域名白名单、风险分级、逐步审批、审计和紧急停止；只有你批准的动作才会执行。</p></div>
           </div>
 
-          <section class="automation-list" aria-label="自动化流程示例">
-            <article class="automation-item"><div class="automation-icon"><i data-lucide="folder-sync" aria-hidden="true"></i></div><div><strong>资料库增量索引（示例）</strong><span>目标：检测到新文件时运行</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="资料库增量索引尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
-            <article class="automation-item"><div class="automation-icon"><i data-lucide="calendar-check-2" aria-hidden="true"></i></div><div><strong>每日学习计划（示例）</strong><span>目标：每天生成复习与学习任务</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="每日学习计划尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
-            <article class="automation-item"><div class="automation-icon"><i data-lucide="scan-search" aria-hidden="true"></i></div><div><strong>科研检索更新（示例）</strong><span>目标：按计划更新候选文献</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="科研检索更新尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
-            <article class="automation-item"><div class="automation-icon"><i data-lucide="mail-check" aria-hidden="true"></i></div><div><strong>周报发送（示例）</strong><span>目标：确认后生成并发送周报</span></div><span class="run-state paused">未启用</span><label class="switch"><input type="checkbox" disabled aria-label="周报发送尚未接入"><span></span></label><button class="icon-button compact" type="button" disabled aria-label="流程菜单尚未接入"><i data-lucide="ellipsis" aria-hidden="true"></i></button></article>
+          <section class="panel" aria-labelledby="browser-title">
+            <div class="panel-heading"><div><p class="section-kicker">受控浏览器自动化</p><h2 id="browser-title">浏览器控制台</h2><p class="supporting-text">域名白名单 → 风险分级 → 逐步审批 → 审计 → 紧急停止。只有你批准的动作才会执行。</p></div><span class="status-label is-neutral" id="browser-state">读取中</span></div>
+            <div class="settings-fields browser-controls">
+              <label class="wide-field"><span>域名白名单（逗号分隔）</span><div class="path-field"><input id="browser-allowlist" type="text" placeholder="example.com, docs.python.org"><button class="secondary-button" id="save-browser-allowlist" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存白名单</span></button></div></label>
+              <div class="field-action wide-field"><button class="danger-button" id="browser-stop" type="button"><i data-lucide="octagon-alert" aria-hidden="true"></i><span>紧急停止</span></button><button class="secondary-button" id="browser-resume" type="button"><i data-lucide="play-circle" aria-hidden="true"></i><span>恢复</span></button><span id="browser-message" aria-live="polite"></span></div>
+            </div>
+            <div class="browser-actions" id="browser-actions"><div class="learning-empty"><i data-lucide="globe" aria-hidden="true"></i><div><strong>暂无浏览器动作</strong><span>由本地 API 或 MCP 提交的动作会出现在这里等待审批。</span></div></div></div>
           </section>
 
           <section class="panel automation-log" aria-labelledby="automation-log-title">
@@ -432,20 +449,74 @@
 
         <section class="page" id="page-settings" data-title="设置" data-eyebrow="系统配置">
           <div class="page-intro">
-            <div><p class="section-kicker">初始设置 3 / 5</p><h2>连接服务并保护本地数据</h2><p class="supporting-text">普通设置使用任务名称；模型和端点只放在高级设置中。</p></div>
+            <div><p class="section-kicker">初始设置</p><h2>连接服务并保护本地数据</h2><p class="supporting-text">模型服务、凭据状态和本地工具都可以在这里管理。</p></div>
             <button class="primary-button" id="save-settings" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存设置</span></button>
           </div>
 
           <div class="settings-layout">
+            <details class="advanced-settings settings-section" open>
+              <summary>模型与生成<i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+
             <section class="settings-section" aria-labelledby="provider-title">
-              <div class="settings-heading"><div><h2 id="provider-title">模型服务</h2><p>选择一个稳定可用的服务商；稍后可以增加备用线路。</p></div><span class="status-label is-neutral" id="provider-state">读取中</span></div>
+              <div class="settings-heading"><div><h2 id="provider-title">模型服务</h2><p>密钥保存在 Windows 凭据管理器；连接测试不会保存或显示密钥。</p></div><span class="status-label is-neutral" id="provider-state">读取中</span></div>
               <div class="settings-fields">
                 <label><span>服务商</span><select id="provider-select"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
-                <label><span>API 地址</span><input id="api-endpoint" type="url" value="https://api.openai.com/v1"></label>
+                <label><span>API 地址</span><input id="api-endpoint" type="url" value="https://api.openai.com/v1" required></label>
                 <label class="wide-field"><span>API 密钥</span><div class="secret-field"><input id="api-key" type="password" autocomplete="off" placeholder="输入后仅写入系统凭据库"><button class="icon-button compact" id="toggle-key" type="button" aria-label="显示或隐藏密钥"><i data-lucide="eye" aria-hidden="true"></i></button></div></label>
-                <div class="field-action"><button class="secondary-button" id="test-provider" type="button"><i data-lucide="shield-check" aria-hidden="true"></i><span>安全保存密钥</span></button><span id="provider-message">密钥只存入 Windows 凭据管理器</span></div>
+                <div class="field-action wide-field"><button class="secondary-button" id="save-provider" type="button"><i data-lucide="shield-check" aria-hidden="true"></i><span>保存密钥</span></button><button class="secondary-button" id="test-provider" type="button"><i data-lucide="plug-zap" aria-hidden="true"></i><span>测试连接</span></button><span id="provider-message" aria-live="polite">密钥只存入 Windows 凭据管理器</span></div>
               </div>
             </section>
+
+            <section class="settings-section" aria-labelledby="model-roles-title">
+              <div class="settings-heading"><div><h2 id="model-roles-title">模型角色</h2><p>按任务选择服务商和模型；只有你显式配置的角色才会用于生成调用，调用只记录指标不保存正文。</p></div><button class="secondary-button" id="refresh-model-roles" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新角色</span></button></div>
+              <div class="model-roles-list" id="model-roles-list">
+                <div class="model-role-row" data-role="reasoning">
+                  <div class="model-role-heading"><strong>深度推理</strong><span class="status-label is-neutral">读取中</span></div>
+                  <div class="settings-fields">
+                    <label><span>服务商</span><select class="role-provider"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
+                    <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1"></label>
+                    <label class="wide-field"><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://你的模型服务地址/v1"></label>
+                    <div class="field-action wide-field"><button class="secondary-button role-save" type="button" data-role="reasoning"><i data-lucide="save" aria-hidden="true"></i><span>保存角色</span></button><span class="role-message" aria-live="polite"></span></div>
+                  </div>
+                </div>
+                <div class="model-role-row" data-role="fast">
+                  <div class="model-role-heading"><strong>快速任务</strong><span class="status-label is-neutral">读取中</span></div>
+                  <div class="settings-fields">
+                    <label><span>服务商</span><select class="role-provider"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
+                    <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1-mini"></label>
+                    <label class="wide-field"><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://你的模型服务地址/v1"></label>
+                    <div class="field-action wide-field"><button class="secondary-button role-save" type="button" data-role="fast"><i data-lucide="save" aria-hidden="true"></i><span>保存角色</span></button><span class="role-message" aria-live="polite"></span></div>
+                  </div>
+                </div>
+                <div class="model-role-row" data-role="vision">
+                  <div class="model-role-heading"><strong>视觉理解</strong><span class="status-label is-neutral">读取中</span></div>
+                  <div class="settings-fields">
+                    <label><span>服务商</span><select class="role-provider"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
+                    <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1-vision"></label>
+                    <label class="wide-field"><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://你的模型服务地址/v1"></label>
+                    <div class="field-action wide-field"><button class="secondary-button role-save" type="button" data-role="vision"><i data-lucide="save" aria-hidden="true"></i><span>保存角色</span></button><span class="role-message" aria-live="polite"></span></div>
+                  </div>
+                </div>
+                <div class="model-role-row is-local" data-role="embedding">
+                  <div><strong>文本向量</strong><p class="supporting-text">使用本地 BAAI/bge-small-zh-v1.5，资料不会发送到外部 Embedding 服务。</p></div>
+                  <span class="status-label is-success">本地已启用</span>
+                </div>
+              </div>
+              <div class="generate-test">
+                <div class="model-role-heading"><strong>生成测试</strong><p class="supporting-text">只做最小的一次文本生成，用于验证角色路由和凭据。</p></div>
+                <div class="settings-fields">
+                  <label class="wide-field"><span>提示词</span><textarea id="generate-prompt" maxlength="20000" rows="3" placeholder="例如：用一句话解释数列极限。"></textarea></label>
+                  <label><span>角色</span><select id="generate-role"><option value="reasoning">深度推理</option><option value="fast">快速任务</option><option value="vision">视觉理解</option></select></label>
+                  <div class="field-action"><button class="secondary-button" id="generate-test" type="button"><i data-lucide="sparkles" aria-hidden="true"></i><span>生成</span></button></div>
+                </div>
+                <div class="generate-output" id="generate-output" hidden></div>
+              </div>
+            </section>
+
+            </details>
+
+            <details class="advanced-settings settings-section">
+              <summary>数据、运维与隐私<i data-lucide="chevron-down" aria-hidden="true"></i></summary>
 
             <section class="settings-section" aria-labelledby="tools-title">
               <div class="settings-heading"><div><h2 id="tools-title">开源能力</h2><p>旧系统继续保存权威数据，成熟项目作为可替换的能力层接入。</p></div><button class="secondary-button" id="refresh-tools" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新状态</span></button></div>
@@ -454,45 +525,38 @@
               </div>
             </section>
 
-            <section class="settings-section" aria-labelledby="data-title">
-              <div class="settings-heading"><div><h2 id="data-title">本地数据</h2><p>资料、索引、学习状态和审计日志都保存在此位置。</p></div><span class="status-label is-success">本地</span></div>
-              <div class="settings-fields"><label class="wide-field"><span>数据目录</span><div class="path-field"><input id="data-path" type="text" value="C:\AI-PC"><button class="secondary-button" type="button">选择</button></div></label><label><span>备份频率</span><select><option>每天</option><option>每周</option><option>手动</option></select></label><label><span>保留版本</span><select><option>最近 14 份</option><option>最近 30 份</option><option>最近 90 份</option></select></label></div>
+            <section class="settings-section" aria-labelledby="zotero-title">
+              <div class="settings-heading"><div><h2 id="zotero-title">Zotero 文献库</h2><p>只读同步条目、集合和附件路径；不复制文献文件，也不读取任何凭据。</p></div><button class="secondary-button" id="sync-zotero" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>同步 Zotero</span></button></div>
+              <div class="zotero-status" id="zotero-status"><span class="status-label is-neutral">读取中</span><small>正在检测 Zotero 数据目录</small></div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="ops-title">
+              <div class="settings-heading"><div><h2 id="ops-title">备份与磁盘</h2><p>数据库完整性、最近备份和磁盘剩余空间；备份通过 SQLite 在线备份 API 生成。</p></div><button class="secondary-button" id="run-backup" type="button"><i data-lucide="database-backup" aria-hidden="true"></i><span>立即备份</span></button></div>
+              <div class="ops-status" id="ops-status"><span class="status-label is-neutral">读取中</span><small>正在检查数据库与磁盘</small></div>
+              <div class="settings-fields backup-settings">
+                <label class="wide-field check-control"><input id="backup-enabled" type="checkbox"><span>启用定时自动备份</span></label>
+                <label><span>备份间隔（小时）</span><input id="backup-interval" type="number" min="1" max="720" step="1" value="24"></label>
+                <label><span>保留备份份数</span><input id="backup-keep" type="number" min="1" max="365" step="1" value="14"></label>
+                <div class="field-action"><button class="secondary-button" id="save-backup-settings" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存备份设置</span></button><span id="backup-settings-message" aria-live="polite"></span></div>
+              </div>
             </section>
 
             <section class="settings-section" aria-labelledby="privacy-title">
               <div class="settings-heading"><div><h2 id="privacy-title">隐私与审批</h2><p>只把回答所需的最少片段发送给模型服务。</p></div></div>
-              <div class="toggle-list">
-                <label><span><strong>敏感资料使用本地 Embedding</strong><small>文本不会发送给外部 Embedding 服务</small></span><span class="switch"><input type="checkbox" checked><span></span></span></label>
-                <label><span><strong>外发操作每次确认</strong><small>邮件、上传、发布和提交表单</small></span><span class="switch"><input type="checkbox" checked><span></span></span></label>
-                <label><span><strong>保留工具审计日志</strong><small>记录参数、结果、批准人和时间</small></span><span class="switch"><input type="checkbox" checked><span></span></span></label>
-                <label><span><strong>匿名使用统计</strong><small>仅用于本地成本和性能分析</small></span><span class="switch"><input type="checkbox"><span></span></span></label>
-              </div>
+              <ul class="check-list">
+                <li>敏感资料使用本地 Embedding，不会发送给外部 Embedding 服务</li>
+                <li>外发操作每次确认</li>
+                <li>保留工具审计日志（参数、结果、批准人和时间）</li>
+                <li>匿名使用统计当前未启用</li>
+              </ul>
             </section>
 
-            <details class="advanced-settings">
-              <summary><i data-lucide="wrench" aria-hidden="true"></i><span>高级设置</span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
-              <div class="settings-fields"><label><span>深度推理</span><input type="text" value="reasoning"></label><label><span>快速任务</span><input type="text" value="fast"></label><label><span>视觉理解</span><input type="text" value="vision"></label><label><span>文本向量</span><input type="text" value="embedding"></label></div>
             </details>
           </div>
         </section>
       </main>
     </div>
   </div>
-
-  <dialog id="assistant-dialog" class="app-dialog">
-    <form method="dialog" class="dialog-shell">
-      <header><div><p class="section-kicker">统一入口</p><h2>询问 Nexus</h2></div><button class="icon-button" value="cancel" aria-label="关闭"><i data-lucide="x" aria-hidden="true"></i></button></header>
-      <div class="assistant-context"><i data-lucide="shield-check" aria-hidden="true"></i><span>将根据问题自动选择资料、学习记录或科研项目；执行操作前会请求确认。</span></div>
-      <div class="prompt-presets" aria-label="常用任务">
-        <button type="button" data-prompt="根据我的高数进度安排今天的学习">安排今天的学习</button>
-        <button type="button" data-prompt="总结当前科研项目的证据和下一步">整理科研下一步</button>
-        <button type="button" data-prompt="搜索本地资料并附上页码">搜索本地资料</button>
-        <button type="button" data-prompt="检查编程 Agent 的待审查变更">审查代码变更</button>
-      </div>
-      <label class="dialog-prompt"><span class="sr-only">问题</span><textarea id="assistant-input" rows="5" placeholder="输入问题或要完成的任务"></textarea></label>
-      <footer><span>当前模式：自动选择工具</span><button class="primary-button" id="send-assistant" type="button"><i data-lucide="send" aria-hidden="true"></i><span>发送</span></button></footer>
-    </form>
-  </dialog>
 
   <dialog id="project-dialog" class="app-dialog compact-dialog">
     <form method="dialog" id="project-form" class="dialog-shell">

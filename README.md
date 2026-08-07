@@ -1,8 +1,14 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、Crossref/OpenAlex 科研检索与筛选、科研笔记、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理和审计记录。通用 AI 对话、DeepTutor 模型适配器、Zotero 自动同步、定时自动化和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。通用 AI 对话、定时资料监听、自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
+
+模块边界、数据流、API 约定和接手流程见 [DESIGN.md](DESIGN.md)。涉及结构迁移、模型调用或电脑自动化前，应先阅读该设计说明。
+
+产品方向是“图书馆 + 调度中心”：资料、实验和学习证据长期沉淀在本地，Dashboard 连接 Codex、CLI、skills、MCP 和多种模型，但不要求用户放弃更成熟的执行器，也不把长期知识绑定到单一聊天窗口。
+
+普通用户的日常使用说明见 [AI-PC 使用说明](../../docs/AI-PC-使用说明.md)：包含页面导览、首次配置模型、资料导入、学习流程、Zotero 同步、备份和常见问题。
 
 正式部署目录为 `C:\AI-PC\app\dashboard`，访问地址为 `http://127.0.0.1:8765`。直接双击 `index.html` 只会进入演示模式，不能访问本地数据库或导入文件。
 
@@ -16,7 +22,9 @@ C:\AI-PC\
   data\library\parsed\          # 后续复杂解析结果
   data\index\qdrant\            # 嵌入式 Qdrant 向量索引
   data\index\models\            # BAAI/bge-small-zh-v1.5 模型缓存
+  data\index\paperqa\           # PaperQA2 论文索引（向量 + 文档快照）
   data\zotero\                   # Zotero 数据库与附件
+  tools\nodejs\                  # Node.js LTS，用于前端语法检查和后续工具链
   vault\                         # Obsidian Markdown Vault，也是允许导入目录
   backups\database\              # SQLite 备份
   logs\dashboard.stdout.log      # 后台服务标准输出
@@ -31,7 +39,8 @@ C:\AI-PC\
 - 项目已有 `.venv` 时可直接运行，不要求全局 Python。
 - 更新依赖时建议安装 `uv`，并在项目目录执行 `uv sync --dev`。
 - Git for Windows、Obsidian、Zotero 已安装。Obsidian Vault 为 `C:\AI-PC\vault`，Zotero 数据目录为 `C:\AI-PC\data\zotero`。
-- 当前阶段不安装 Node.js、Docker Desktop、WSL2、Dify 或 n8n。
+- Node.js LTS 安装在 `C:\AI-PC\tools\nodejs`，不是 Dashboard 运行时必需依赖。
+- 当前阶段不安装 Docker Desktop、WSL2、Dify 或 n8n。
 
 首次部署或依赖发生变化时：
 
@@ -181,6 +190,47 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/semantic/rebuild' -Met
 - 只有两个来源都成功后才在单个 SQLite 事务中保存，网络或上游错误不会留下半份检索记录。
 - 公共元数据接口不需要用户 API 密钥；论文全文和 Zotero 自动导入尚未接入。
 
+### 5.3 PaperQA2 论文问答
+
+- 科研页提供“PaperQA2 论文问答”区域：填写 `C:\AI-PC\data\library` 或 `C:\AI-PC\vault` 内的文件/目录路径，点击“建立索引”。
+- 索引在本地生成：解析 PDF / Markdown / TXT，用本地 BGE 模型（`BAAI/bge-small-zh-v1.5`）向量化，并保存为 `C:\AI-PC\data\index\paperqa\docs.pkl` + `manifest.json` 快照；原文件只读。
+- 提问复用现有“深度推理 / 快速任务”模型角色：服务在调用瞬间从 Windows Credential Manager 读取密钥，在进程内构造 LiteLLM Router，不写任何长期配置文件。
+- `POST /api/paperqa/ask` 返回 `answer`、`formatted_answer`、`context`、`references` 和 `sources`（含引用与证据片段）；`model_calls` 记录服务商、模型、角色、耗时和 token，不保存论文全文提示词。
+- 依赖说明：`paper-qa==5.29.1` 与 `paper-qa-pypdf==5.29.1` 必须成对锁定（新版 `2026.x` 的 pypdf 解析器与 5.29 不兼容）。
+
+### 5.4 DeepTutor 教学与研究问答
+
+DeepTutor 是独立安装的教学能力执行器（当前 v1.5.9），通过 Dashboard 的适配器调用，不运行交互式 `deeptutor init` 向导：
+
+- `GET /api/deeptutor/status`：报告安装状态、版本、工作区和 `reasoning` / `fast` 模型角色是否可用（只返回配置状态，不返回密钥）。
+- `POST /api/deeptutor/run`：一次调用一个能力，支持 `chat`（自由对话）、`deep_solve`（深度解题）、`deep_question`（生成题目）和 `deep_research`（深度研究）；语言支持 `zh` / `en`。
+- 模型角色复用设置页的 `reasoning` / `fast` 角色；密钥从 Windows Credential Manager 按调用读取。
+- 密钥只在单次 CLI 子进程运行期间写入 `C:\AI-PC\data\deeptutor\data\user\settings\model_catalog.json`，调用结束后立即还原无密钥基线；密钥不进入参数、日志、SQLite、审计或持久化配置。
+- 每次调用写入 `model_calls`（服务商、模型、角色、耗时、token、错误码）和 `audit_events`；提示词正文不记录。
+- 工作区首次使用时自动初始化非敏感默认设置；不创建长期密钥配置。
+- DeepTutor 的 `.venv-cli` 已补充 `deeptutor run` 需要的 server 依赖（fastapi、uvicorn、pocketbase 等）；换机器或重建环境后需要重新安装。
+
+PowerShell 调用示例：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8765/api/deeptutor/status'
+
+$payload = @{
+  capability = 'deep_solve'
+  prompt     = '请解释数列极限的 ε-N 定义，并给出一道例题'
+  role       = 'reasoning'
+  language   = 'zh'
+} | ConvertTo-Json
+$body = [System.Text.Encoding]::UTF8.GetBytes($payload)
+Invoke-RestMethod `
+  -Uri 'http://127.0.0.1:8765/api/deeptutor/run' `
+  -Method Post `
+  -ContentType 'application/json; charset=utf-8' `
+  -Body $body
+```
+
+返回包含 `answer`、`session_id`、`turn_id`、`model`、`latency_ms` 和 token 统计。首次运行会初始化工作区，之后单次调用通常在数十秒内完成；`deep_research` 可能更久，API 超时上限为 600 秒。
+
 ## 6. API 密钥与 Windows Credential Manager
 
 密钥接口已经接入 Windows Credential Manager，并验证使用 `keyring.backends.Windows.WinVaultKeyring`。密钥服务名固定为 `Nexus AI-PC API Credentials v1`，支持以下规范服务商 ID：
@@ -228,7 +278,9 @@ Invoke-RestMethod `
   -Method Delete
 ```
 
-当前设置页尚未发起真实模型连接测试；“已安全保存”或 `configured: true` 只说明密钥已写入 Windows Credential Manager，不代表 API 地址、额度或网络可用。
+设置页可通过 `POST /api/models/test` 发起只读连接测试。后端会先校验服务商与端点，再在调用瞬间从 Windows Credential Manager 读取密钥，请求模型列表端点后立即丢弃内存引用。接口只返回服务商、状态和耗时；`model_calls` 只记录操作、来源、耗时、状态和错误码，不保存密钥、响应正文或模型列表。
+
+OpenAI、Anthropic、Google Gemini、DeepSeek 和阿里云百炼只能连接各自的官方 HTTPS 域名；兼容 OpenAI 的服务必须使用 HTTPS，本机回环地址例外。连接测试会区分未配置、鉴权失败、限流、超时、网络错误和上游错误。它仅验证端点与凭据，不会生成对话内容，也不代表模型路由已经配置完成。
 
 ## 7. 数据库备份与恢复
 
@@ -262,6 +314,32 @@ Copy-Item 'C:\AI-PC\data\database\ai-pc.sqlite3' "C:\AI-PC\backups\database\ai-p
 ```
 
 完整备份还应包含 `C:\AI-PC\data\library` 和 `C:\AI-PC\vault`。数据库保存的是索引和状态，不包含原始 PDF 的副本；API 密钥也不应存入数据库。
+
+### 自动备份与保留策略
+
+Dashboard 服务运行期间会按设置自动执行在线一致性备份。设置页“备份与磁盘”区域可配置：
+
+| 设置 | 默认 | 范围 | 说明 |
+|---|---|---|---|
+| 启用自动备份 | 开启 | 开/关 | 关闭后仅保留手动“立即备份” |
+| 备份间隔 | 24 小时 | 1–720 小时 | 从上一次启动间隔起算，每次循环重新读取设置 |
+| 保留份数 | 14 份 | 1–365 份 | 超过保留份数的 `ai-pc-*.sqlite3` 会被清理并写入审计 |
+
+设置通过 SQLite `settings` 表持久化，也可直接调用 API：
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8765/api/ops/backup/settings'
+
+$payload = @{ enabled = $true; interval_hours = 24; keep_count = 14 } | ConvertTo-Json
+$body = [System.Text.Encoding]::UTF8.GetBytes($payload)
+Invoke-RestMethod `
+  -Uri 'http://127.0.0.1:8765/api/ops/backup/settings' `
+  -Method Put `
+  -ContentType 'application/json; charset=utf-8' `
+  -Body $body
+```
+
+保留策略只作用于 `C:\AI-PC\backups\database` 下匹配 `ai-pc-*.sqlite3` 的文件；手动备份和自动备份都按同一规则计数。删除前会再次解析真实路径，确保不会跟随符号链接删除目录外的文件。
 
 ### 恢复数据库
 
@@ -314,7 +392,7 @@ Get-Content 'C:\AI-PC\logs\dashboard.stdout.log' -Tail 100
 
 ## 9. 迁移到新硬盘
 
-如果按你的计划把当前系统盘完整克隆到 512 GB SSD，并让新盘继续作为 Windows 的 `C:` 盘，应用路径不会变化，不需要目录联接或修改配置。克隆前停止 Dashboard、创建一致性数据库备份并正常关机；从新盘启动后扩展 C 盘分区，再复测健康检查、17 篇资料、中文检索和完整测试。旧盘至少保留到新盘完成一次重启与备份验收后。
+系统盘已升级为 512 GB SSD，并继续作为 Windows 的 `C:` 盘，因此应用路径未变化。2026-08-06 最终复测 NTFS 卷总容量约 511.4 GB、可用约 448.3 GB。可用空间会随 Windows 临时文件和缓存波动；后续仍需按正常运维流程复测健康检查、资料计数、中文检索和完整测试。
 
 下面的目录联接方案只适用于“不克隆 Windows，只把 `C:\AI-PC` 单独搬到另一个盘符”的情况。
 
@@ -370,7 +448,7 @@ uv run pytest
 & '.\.venv\Scripts\python.exe' -c "import sqlite3; c=sqlite3.connect(r'C:\AI-PC\data\database\ai-pc.sqlite3'); print(c.execute('PRAGMA quick_check').fetchone()[0]); c.close()"
 ```
 
-2026-08-06 的当前验证结果为 `50 passed`；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
+2026-08-07 工作区完整测试为 `126 passed`；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
 
 ## 11. 常见问题
 
@@ -395,9 +473,62 @@ uv run pytest
 - `/api/research/projects`、`/api/research/projects/{id}/notes`
 - `/api/research/projects/{id}/searches`、`/api/research/searches/{id}`
 - `/api/research/projects/{id}/screening`、`/api/research/projects/{id}/papers/{paper_id}/screening`
+- `/api/paperqa/status`、`/api/paperqa/index`、`/api/paperqa/ask`
+- `/api/deeptutor/status`、`/api/deeptutor/run`
 - `/api/tools`、`/api/agent/status`
 - `/api/agent/tasks`、`/api/agent/tasks/{id}/handoff`
 - `/api/settings`、`/api/audit`
 - `/api/credentials`、`/api/credentials/{provider}`
+- `/api/models/test`
+- `/api/models/roles`、`/api/models/roles/{role}`、`/api/models/generate`
+- `/api/coach/report`、`/api/coach/plan`、`/api/coach/context`
+- `/api/zotero/status`、`/api/zotero/sync`
+- `/api/ops/status`、`/api/ops/backup`
+- `/api/ops/backup/settings`（`GET` / `PUT`）
+- `/api/browser/status`、`/api/browser/allowlist`、`/api/browser/actions`
+- `/api/browser/actions/{id}/approve`、`/api/browser/actions/{id}/reject`
+- `/api/browser/stop`、`/api/browser/resume`
+
+## 13. MCP 只读工具服务
+
+`backend/mcp_server.py` 提供只读 MCP 工具：`search_library`、`learning_progress`、`coach_report`、`coach_plan`、`research_projects`、`zotero_status`、`ops_status`、`audit_log`。工具直接调用运行中的 Dashboard API，共享同一份数据和审计；不执行写入、不读取密钥、不做任何副作用。
+
+先启动 Dashboard，再启动 MCP 服务：
+
+```powershell
+Set-Location 'C:\AI-PC\app\dashboard'
+& '.\.venv\Scripts\python.exe' -m backend.mcp_server
+```
+
+在 Cline / VS Code 的 MCP 配置中注册：
+
+```json
+{
+  "mcpServers": {
+    "nexus-ai-pc": {
+      "command": "C:\\AI-PC\\app\\dashboard\\.venv\\Scripts\\python.exe",
+      "args": ["-m", "backend.mcp_server"],
+      "cwd": "C:\\AI-PC\\app\\dashboard"
+    }
+  }
+}
+```
+
+## 14. 受控浏览器自动化
+
+浏览器动作走“域名白名单 → 风险分级 → 逐步审批 → 审计 → 紧急停止”：
+
+- `PUT /api/browser/allowlist`：设置允许访问的域名；默认空列表表示全部拒绝。
+- `POST /api/browser/actions`：提交 `open` / `click` / `type` / `snapshot` / `close`；`open` 必须命中白名单；`snapshot` 为低风险自动执行，其余进入待审批。
+- `POST /api/browser/actions/{id}/approve` / `reject`：人工审批。
+- `POST /api/browser/stop` / `resume`：紧急停止与恢复；停止后不接受新动作。
+- 每次提交、审批、执行、停止都会写入 `audit_events`；Playwright 未安装时审批返回 503，动作不会执行。
+
+依赖安装（本机已完成，换机器时需要重做）：
+
+```powershell
+uv sync --dev
+& '.\.venv\Scripts\python.exe' -m playwright install chromium
+```
 
 设置接口有意拒绝 `api_key` 等额外字段。密钥只通过凭据接口写入 Windows Credential Manager，不能写入源码、Markdown、日志或 SQLite 设置表。

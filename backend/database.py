@@ -241,6 +241,46 @@ CREATE TABLE IF NOT EXISTS audit_events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS model_calls (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    model TEXT,
+    role TEXT,
+    source TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL CHECK(duration_ms >= 0),
+    status TEXT NOT NULL CHECK(status IN ('success', 'error', 'cancelled')),
+    error_code TEXT,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    total_tokens INTEGER,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS zotero_syncs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    status TEXT NOT NULL,
+    item_count INTEGER NOT NULL DEFAULT 0,
+    collection_count INTEGER NOT NULL DEFAULT 0,
+    attachment_count INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS zotero_items (
+    key TEXT PRIMARY KEY,
+    item_type TEXT NOT NULL,
+    title TEXT,
+    year TEXT,
+    doi TEXT,
+    url TEXT,
+    creators_json TEXT NOT NULL DEFAULT '[]',
+    collections_json TEXT NOT NULL DEFAULT '[]',
+    attachment_paths_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_documents_title ON documents(title);
 CREATE INDEX IF NOT EXISTS idx_chunks_document ON document_chunks(document_id, ordinal);
 CREATE INDEX IF NOT EXISTS idx_attempts_concept ON learning_attempts(concept_id);
@@ -250,6 +290,9 @@ CREATE INDEX IF NOT EXISTS idx_research_results_run ON research_search_results(s
 CREATE INDEX IF NOT EXISTS idx_research_results_paper ON research_search_results(paper_id);
 CREATE INDEX IF NOT EXISTS idx_research_screening_project ON research_screening_decisions(project_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_model_calls_created ON model_calls(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_zotero_syncs_created ON zotero_syncs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_zotero_items_type ON zotero_items(item_type);
 """
 
 
@@ -795,6 +838,163 @@ class Database:
             (category, action, target, result, utc_now()),
         )
 
+    def record_model_call(
+        self,
+        *,
+        provider: str,
+        operation: str,
+        source: str,
+        duration_ms: int,
+        status: str,
+        model: str | None = None,
+        role: str | None = None,
+        error_code: str | None = None,
+        prompt_tokens: int | None = None,
+        completion_tokens: int | None = None,
+        total_tokens: int | None = None,
+    ) -> None:
+        self.execute(
+            """
+            INSERT INTO model_calls(
+                provider, operation, model, role, source, duration_ms, status, error_code,
+                prompt_tokens, completion_tokens, total_tokens, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                provider,
+                operation,
+                model,
+                role,
+                source,
+                max(0, duration_ms),
+                status,
+                error_code,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                utc_now(),
+            ),
+        )
+
+    def quick_check(self) -> str:
+        with self.connect() as connection:
+            return str(connection.execute("PRAGMA quick_check").fetchone()[0])
+
+    def backup_to(self, destination: Path) -> Path:
+        """Create an online SQLite backup using the native backup API."""
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._write_lock, self.connect() as source, sqlite3.connect(destination) as target:
+            source.backup(target)
+        return destination
+
+    @staticmethod
+    def verify_backup(path: Path) -> str:
+        with sqlite3.connect(path) as connection:
+            return str(connection.execute("PRAGMA quick_check").fetchone()[0])
+
+    def save_zotero_sync(
+        self,
+        *,
+        items: list[dict[str, Any]],
+        collection_count: int,
+        attachment_count: int,
+        status: str = "success",
+        error: str | None = None,
+        replace_items: bool = True,
+    ) -> dict[str, Any]:
+        """Replace the Zotero snapshot in a single transaction."""
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            if replace_items:
+                connection.execute("DELETE FROM zotero_items")
+                connection.executemany(
+                    """
+                    INSERT INTO zotero_items(
+                        key, item_type, title, year, doi, url, creators_json,
+                        collections_json, attachment_paths_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        (
+                            item["key"],
+                            item["item_type"],
+                            item.get("title"),
+                            item.get("year"),
+                            item.get("doi"),
+                            item.get("url"),
+                            json.dumps(item.get("creators", []), ensure_ascii=False),
+                            json.dumps(item.get("collections", []), ensure_ascii=False),
+                            json.dumps(item.get("attachment_paths", []), ensure_ascii=False),
+                            now,
+                        )
+                        for item in items
+                    ],
+                )
+            cursor = connection.execute(
+                """
+                INSERT INTO zotero_syncs(
+                    status, item_count, collection_count, attachment_count, error,
+                    started_at, finished_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (status, len(items), collection_count, attachment_count, error, now, now),
+            )
+            connection.commit()
+            row = connection.execute(
+                "SELECT * FROM zotero_syncs WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+            return dict(row)
+
+    def get_zotero_status(self) -> dict[str, Any]:
+        last_sync = self.query_one(
+            "SELECT * FROM zotero_syncs ORDER BY id DESC LIMIT 1"
+        )
+        item_count = int(
+            self.query_one("SELECT COUNT(*) AS count FROM zotero_items")["count"]
+        )
+        return {
+            "last_sync": last_sync,
+            "item_count": item_count,
+        }
+
+    def get_model_roles(self) -> list[dict[str, str]]:
+        rows = self.query_all(
+            "SELECT key, value FROM settings WHERE key LIKE 'model_role.%' ORDER BY key"
+        )
+        roles: dict[str, dict[str, str]] = {}
+        for row in rows:
+            key = row["key"]
+            if not key.startswith("model_role."):
+                continue
+            role, _, field = key[len("model_role.") :].partition(".")
+            if not role or not field:
+                continue
+            roles.setdefault(role, {})[field] = row["value"]
+        return [
+            {
+                "role": role,
+                "provider": fields.get("provider", ""),
+                "model": fields.get("model", ""),
+                "endpoint": fields.get("endpoint", ""),
+            }
+            for role, fields in sorted(roles.items())
+        ]
+
+    def save_model_role(self, *, role: str, provider: str, model: str, endpoint: str) -> None:
+        now = utc_now()
+        self.execute_many(
+            """
+            INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            [
+                (f"model_role.{role}.provider", provider, now),
+                (f"model_role.{role}.model", model, now),
+                (f"model_role.{role}.endpoint", endpoint, now),
+            ],
+        )
+
     def import_document(
         self,
         *,
@@ -1046,6 +1246,38 @@ class Database:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_content_hash
             ON documents(content_hash) WHERE content_hash IS NOT NULL
             """
+        )
+
+        model_columns = {row["name"] for row in connection.execute("PRAGMA table_info(model_calls)")}
+        model_additions = {
+            "role": "TEXT",
+            "prompt_tokens": "INTEGER",
+            "completion_tokens": "INTEGER",
+            "total_tokens": "INTEGER",
+        }
+        for name, definition in model_additions.items():
+            if name not in model_columns:
+                connection.execute(f"ALTER TABLE model_calls ADD COLUMN {name} {definition}")
+
+        migration_now = utc_now()
+        connection.executemany(
+            """
+            INSERT OR IGNORE INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+            """,
+            [
+                ("model_role.reasoning.provider", "openai", migration_now),
+                ("model_role.reasoning.model", "", migration_now),
+                ("model_role.reasoning.endpoint", "https://api.openai.com/v1", migration_now),
+                ("model_role.fast.provider", "openai", migration_now),
+                ("model_role.fast.model", "", migration_now),
+                ("model_role.fast.endpoint", "https://api.openai.com/v1", migration_now),
+                ("model_role.vision.provider", "openai", migration_now),
+                ("model_role.vision.model", "", migration_now),
+                ("model_role.vision.endpoint", "https://api.openai.com/v1", migration_now),
+                ("ops.backup.enabled", "1", migration_now),
+                ("ops.backup.interval_hours", "24", migration_now),
+                ("ops.backup.keep_count", "14", migration_now),
+            ],
         )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
