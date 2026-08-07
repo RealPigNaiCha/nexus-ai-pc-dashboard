@@ -24,6 +24,9 @@
         <button class="nav-item is-active" type="button" data-page="overview" aria-current="page" title="总览" aria-label="总览">
           <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
         </button>
+        <button class="nav-item" type="button" data-page="chat" title="AI 对话" aria-label="AI 对话">
+          <i data-lucide="message-circle" aria-hidden="true"></i><span>AI 对话</span>
+        </button>
         <button class="nav-item" type="button" data-page="learning" title="学习" aria-label="学习">
           <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span>
         </button>
@@ -158,6 +161,62 @@
             </div>
           </section>
 
+        </section>
+
+        <section class="page" id="page-chat" data-title="AI 对话" data-eyebrow="本地知识助手">
+          <div class="page-intro">
+            <div>
+              <p class="section-kicker">统一问答</p>
+              <h2>先检索本地资料，再回答你的问题</h2>
+              <p class="supporting-text" id="chat-page-description">AI 会结合资料库和学习进度生成回答，并附上可核对的来源；点击示例即可快速开始。</p>
+            </div>
+          </div>
+
+          <div class="chat-shell">
+            <div class="chat-messages" id="chat-messages" aria-live="polite">
+              <div class="chat-welcome" id="chat-welcome">
+                <div class="chat-welcome-icon"><i data-lucide="sparkles" aria-hidden="true"></i></div>
+                <h3>你好，我是你的本地知识助手</h3>
+                <p>问学习问题、查资料，或让我根据你的学习进度给建议。回答会标注 [1]、[2] 等来源编号，点击“来源”即可核对原文位置。</p>
+                <div class="chat-examples">
+                  <button class="chat-example" type="button" data-example="数列极限的 ε-N 定义是什么？">数列极限的 ε-N 定义</button>
+                  <button class="chat-example" type="button" data-example="根据我的学习进度，我下一步该复习什么？">下一步学什么</button>
+                  <button class="chat-example" type="button" data-example="帮我总结资料库中关于这个主题的内容">总结资料</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="chat-composer">
+              <div class="chat-toolbar">
+                <label class="chat-control">
+                  <span>模型</span>
+                  <select id="chat-role">
+                    <option value="reasoning">深度推理</option>
+                    <option value="fast">快速任务</option>
+                  </select>
+                </label>
+                <label class="chat-control">
+                  <span>范围</span>
+                  <select id="chat-scope">
+                    <option value="all">资料 + 学习</option>
+                    <option value="library">仅资料库</option>
+                    <option value="learning">仅学习进度</option>
+                  </select>
+                </label>
+                <button class="chat-config-link" id="chat-go-settings" type="button" hidden>
+                  <i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>去设置模型</span>
+                </button>
+                <p class="chat-model-status" id="chat-model-status">正在检查模型配置…</p>
+              </div>
+              <div class="chat-input-row">
+                <textarea id="chat-input" rows="2" maxlength="2000" placeholder="输入问题，例如：数列极限的 ε-N 定义是什么？"></textarea>
+                <button class="primary-button chat-send" id="chat-send" type="button">
+                  <i data-lucide="send" aria-hidden="true"></i><span>发送</span>
+                </button>
+              </div>
+              <p class="chat-hint">Enter 发送 · Shift+Enter 换行</p>
+            </div>
+          </div>
         </section>
 
         <section class="page" id="page-learning" data-title="学习" data-eyebrow="个人进度">

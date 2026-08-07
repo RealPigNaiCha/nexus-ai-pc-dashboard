@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
@@ -185,6 +186,15 @@ class ModelGenerateRequest(StrictModel):
     role: str = Field(min_length=1, max_length=32)
     prompt: str = Field(min_length=1, max_length=20_000)
     system: str | None = Field(default=None, max_length=10_000)
+    max_tokens: int = Field(default=1024, ge=1, le=8192)
+    temperature: float = Field(default=0.2, ge=0, le=2)
+
+
+class ChatAskRequest(StrictModel):
+    question: str = Field(min_length=1, max_length=2000)
+    role: str = Field(default="reasoning", min_length=1, max_length=32)
+    scope: Literal["all", "library", "learning"] = "all"
+    course_id: int | None = Field(default=None, gt=0)
     max_tokens: int = Field(default=1024, ge=1, le=8192)
     temperature: float = Field(default=0.2, ge=0, le=2)
 
@@ -1280,6 +1290,264 @@ def create_app(
                 "due_count": len(due),
                 "concepts": concepts,
             },
+        }
+
+    def chat_context(
+        request: Request,
+        question: str,
+        scope: str,
+        course_id: int | None,
+        limit: int = 8,
+    ) -> tuple[list[dict[str, object]], dict[str, object], bool]:
+        database = db(request)
+        evidence: list[dict[str, object]] = []
+        semantic_degraded = False
+        if scope in {"all", "library"}:
+            def retrieve(query: str) -> tuple[list[dict], bool]:
+                lexical_results = lexical_search(database, query, limit)
+                semantic_results, degraded = semantic_search(request, query, limit)
+                return fuse_results(lexical_results, semantic_results, limit), degraded
+
+            candidates, degraded = retrieve(question)
+            semantic_degraded = semantic_degraded or degraded
+            if not candidates and len(question) > 4:
+                fallback_tokens = [
+                    token
+                    for token in sorted(
+                        {match.group(0) for match in re.finditer(r"[\u4e00-\u9fff]{2,}", question)},
+                        key=len,
+                        reverse=True,
+                    )
+                    if len(token) >= 4
+                ]
+                for token in fallback_tokens:
+                    candidates, degraded = retrieve(token)
+                    semantic_degraded = semantic_degraded or degraded
+                    if candidates:
+                        break
+
+            for item in candidates:
+                snippet = str(item.get("snippet") or item.get("chunk") or "").strip()
+                if len(snippet) > 600:
+                    snippet = snippet[:597].rstrip() + "…"
+                evidence.append(
+                    {
+                        "document_id": item.get("document_id"),
+                        "title": item.get("title"),
+                        "document_type": item.get("document_type"),
+                        "source_path": item.get("source_path"),
+                        "page": item.get("page"),
+                        "paragraph": item.get("paragraph"),
+                        "chunk_index": item.get("chunk_index"),
+                        "snippet": snippet,
+                        "search_mode": item.get("search_mode"),
+                        "semantic_score": item.get("semantic_score"),
+                    }
+                )
+
+        learning_state: dict[str, object] = {
+            "scope": scope,
+            "course_id": course_id,
+            "concept_count": 0,
+            "due_count": 0,
+            "weak_foundation_count": 0,
+            "next_step": {"kind": "none", "concept_name": None},
+            "concepts": [],
+        }
+        if scope in {"all", "learning"}:
+            snapshot = coach_snapshot(request, course_id)
+            concepts = [
+                {
+                    "id": item["id"],
+                    "name": item["name"],
+                    "mastery": round(float(item["mastery"]), 1),
+                    "status": item["status"],
+                    "attempt_count": item["attempt_count"],
+                    "due_at": item["due_at"],
+                }
+                for item in snapshot["concepts"]
+            ][:20]
+            next_step = snapshot["next_step"]
+            learning_state = {
+                "scope": scope,
+                "course_id": course_id,
+                "concept_count": int(snapshot["summary"]["concept_count"]),
+                "due_count": int(snapshot["summary"]["due_count"]),
+                "weak_foundation_count": int(snapshot["summary"]["weak_foundation_count"]),
+                "next_step": {
+                    "kind": next_step["kind"],
+                    "concept_name": next_step["concept"]["name"] if next_step.get("concept") else None,
+                },
+                "concepts": concepts,
+            }
+        return evidence, learning_state, semantic_degraded
+
+    def chat_system_prompt(
+        evidence: list[dict[str, object]],
+        learning_state: dict[str, object],
+        scope: str,
+    ) -> str:
+        lines = [
+            "你是 Nexus AI-PC 的本地知识助手，帮助用户学习和研究。",
+            "回答要求：",
+            "1. 优先使用下方【本地资料】中的证据；引用时在对应句子后标注 [1]、[2] 等编号，编号与资料列表一致。",
+            "2. 明确区分资料中的事实、你的推断、用户假设和待验证建议；没有证据时直接说明，不要编造来源。",
+            "3. 对不确定的内容说明剩余不确定性；如果用户观点有误，应给出反例或替代解释，而不是迎合用户。",
+            "4. 回答默认使用中文，简洁、条理清楚，适合快速阅读。",
+        ]
+        if evidence:
+            lines.append("")
+            lines.append("【本地资料】")
+            for index, item in enumerate(evidence, start=1):
+                title = str(item.get("title") or "未命名资料")
+                source = str(item.get("source_path") or "")
+                page = item.get("page")
+                paragraph = item.get("paragraph")
+                location = (
+                    f"第 {page} 页"
+                    if page is not None
+                    else f"第 {paragraph} 段"
+                    if paragraph is not None
+                    else ""
+                )
+                lines.append(
+                    f"[{index}]《{title}》 {source} {location}\n{str(item.get('snippet') or '').strip()}"
+                )
+        else:
+            lines.append("")
+            lines.append("【本地资料】未检索到相关证据。请如实告诉用户，并明确标注哪些内容只是你的推测。")
+
+        concept_count = int(learning_state.get("concept_count") or 0)
+        if scope in {"all", "learning"} and concept_count:
+            lines.append("")
+            lines.append("【学习进度】")
+            lines.append(
+                f"共 {concept_count} 个知识点，{int(learning_state.get('due_count') or 0)} 个待复习，"
+                f"{int(learning_state.get('weak_foundation_count') or 0)} 个薄弱前置。"
+            )
+            next_step = learning_state.get("next_step") or {}
+            next_name = next_step.get("concept_name")
+            if next_name:
+                lines.append(f"建议下一步：{next_name}（{next_step.get('kind')}）。")
+            concept_lines = [
+                f"- {item['name']}（掌握度 {item['mastery']}%，{item['status']}）"
+                for item in learning_state.get("concepts") or []
+            ]
+            if concept_lines:
+                lines.append("知识点：")
+                lines.extend(concept_lines)
+        return "\n".join(lines)
+
+    @app.post("/api/chat/ask")
+    async def chat_ask(payload: ChatAskRequest, request: Request) -> dict[str, object]:
+        role = payload.role.strip()
+        if role not in {"reasoning", "fast"}:
+            raise HTTPException(status_code=422, detail="Chat supports only reasoning and fast roles")
+        database = db(request)
+        roles = {item["role"]: item for item in database.get_model_roles()}
+        config = roles.get(role)
+        canonical = (
+            normalize_provider(config["provider"])
+            if config and config.get("provider")
+            else None
+        )
+        if not config or not config.get("model") or canonical is None:
+            database.record_model_call(
+                provider=canonical or "unconfigured",
+                operation="chat",
+                source="dashboard_chat",
+                duration_ms=0,
+                status="error",
+                error_code="role_not_configured",
+                role=role,
+            )
+            database.audit("chat", "ask", role, result="role_not_configured")
+            raise HTTPException(status_code=409, detail="Model role is not configured")
+
+        question = payload.question.strip()
+        evidence, learning_state, semantic_degraded = chat_context(
+            request,
+            question,
+            payload.scope,
+            payload.course_id,
+        )
+        system = chat_system_prompt(evidence, learning_state, payload.scope)
+        try:
+            result = await request.app.state.model_gateway.generate(
+                provider=canonical,
+                endpoint=config["endpoint"],
+                model=config["model"],
+                prompt=question,
+                system=system,
+                max_tokens=payload.max_tokens,
+                temperature=payload.temperature,
+                role=role,
+            )
+        except ModelRequestCancelled as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="chat",
+                source="dashboard_chat",
+                duration_ms=error.duration_ms,
+                status="cancelled",
+                error_code="cancelled",
+                role=role,
+            )
+            database.audit("chat", "ask", role, result="cancelled")
+            raise asyncio.CancelledError from None
+        except CredentialStorageError:
+            database.record_model_call(
+                provider=canonical,
+                operation="chat",
+                source="dashboard_chat",
+                duration_ms=0,
+                status="error",
+                error_code="credential_store_unavailable",
+                role=role,
+            )
+            database.audit("chat", "ask", role, result="credential_store_unavailable")
+            raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
+        except ModelGatewayError as error:
+            database.record_model_call(
+                provider=canonical,
+                operation="chat",
+                source="dashboard_chat",
+                duration_ms=error.duration_ms,
+                status="error",
+                error_code=error.code,
+                role=role,
+            )
+            database.audit("chat", "ask", role, result=error.code)
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+
+        database.record_model_call(
+            provider=result.provider,
+            operation="chat",
+            source="dashboard_chat",
+            duration_ms=result.latency_ms,
+            status="success",
+            model=result.model,
+            role=result.role,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+        )
+        database.audit("chat", "ask", role)
+        return {
+            "role": result.role,
+            "provider": result.provider,
+            "model": result.model,
+            "status": "ok",
+            "answer": result.content,
+            "latency_ms": result.latency_ms,
+            "usage": {
+                "prompt_tokens": result.prompt_tokens,
+                "completion_tokens": result.completion_tokens,
+                "total_tokens": result.total_tokens,
+            },
+            "evidence": evidence,
+            "learning_state": learning_state,
+            "semantic_degraded": semantic_degraded,
         }
 
     @app.get("/api/research/projects")

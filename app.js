@@ -50,6 +50,9 @@
   let agentRuntime = null;
   let toolRegistry = [];
   let paperqaStatus = null;
+  let chatRoles = [];
+  let chatSending = false;
+  let chatMessageId = 0;
 
   async function apiFetch(path, options = {}) {
     if (window.location.protocol === "file:") return null;
@@ -104,6 +107,7 @@
       if (qs("#semantic-index-state")) qs("#semantic-index-state").textContent = "服务未连接";
       showAgentUnavailable("本地服务未连接");
       showToolsUnavailable("本地服务未连接");
+      showChatUnavailable();
     }
   }
 
@@ -152,6 +156,7 @@
       await loadResearchProjects({ quiet: true });
       await refreshCredentialStatus();
       await loadModelRoles({ quiet: true });
+      await loadChatSetup({ quiet: true });
       await loadPaperQAStatus({ quiet: true });
       await loadZoteroStatus({ quiet: true });
       await loadOpsStatus({ quiet: true });
@@ -847,6 +852,275 @@
     }
   }
 
+  function showChatUnavailable() {
+    const status = qs("#chat-model-status");
+    if (status) {
+      status.textContent = "本地服务未连接，无法提问";
+      status.classList.add("is-warning");
+    }
+    if (qs("#chat-go-settings")) qs("#chat-go-settings").hidden = true;
+    const input = qs("#chat-input");
+    const send = qs("#chat-send");
+    if (input) input.disabled = true;
+    if (send) send.disabled = true;
+  }
+
+  async function loadChatSetup({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return false;
+    const status = qs("#chat-model-status");
+    const settingsButton = qs("#chat-go-settings");
+    const input = qs("#chat-input");
+    const send = qs("#chat-send");
+    if (input) input.disabled = false;
+    if (send) send.disabled = false;
+    try {
+      const payload = await apiFetch("/models/roles");
+      chatRoles = Array.isArray(payload?.roles) ? payload.roles : [];
+      const readyRoles = chatRoles.filter(
+        (item) => item.role === "reasoning" || item.role === "fast"
+      );
+      const ready = readyRoles.some((item) => item.ready === true);
+      const readyNames = readyRoles
+        .filter((item) => item.ready === true)
+        .map((item) => (item.role === "reasoning" ? "深度推理" : "快速任务"));
+      if (status) {
+        status.textContent = ready
+          ? `${readyNames.join("、")}已就绪，可直接提问`
+          : "模型未配置：请先保存密钥并配置角色";
+        status.classList.toggle("is-warning", !ready);
+      }
+      if (settingsButton) settingsButton.hidden = ready;
+      return ready;
+    } catch (error) {
+      if (status) {
+        status.textContent = "模型配置读取失败";
+        status.classList.add("is-warning");
+      }
+      if (!quiet) toast(`模型配置读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  function chatMessageLocation(item) {
+    if (item.page !== null && item.page !== undefined && item.page !== "") {
+      return ` · 第 ${item.page} 页`;
+    }
+    if (item.paragraph !== null && item.paragraph !== undefined && item.paragraph !== "") {
+      return ` · 第 ${item.paragraph} 段`;
+    }
+    return "";
+  }
+
+  function renderChatMarkdown(text) {
+    const escaped = escapeHtml(text);
+    const segments = escaped.split("```");
+    let html = "";
+    segments.forEach((segment, index) => {
+      if (index % 2 === 1) {
+        html += `<pre><code>${segment.trim()}</code></pre>`;
+        return;
+      }
+      const lines = segment.split("\n");
+      let listTag = "";
+      const paragraph = [];
+      const flushParagraph = () => {
+        if (!paragraph.length) return;
+        html += `<p>${paragraph.join("<br>")}</p>`;
+        paragraph.length = 0;
+      };
+      const closeList = () => {
+        if (listTag) {
+          html += `</${listTag}>`;
+          listTag = "";
+        }
+      };
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const heading = line.match(/^(#{1,4})\s+(.*)$/);
+        if (heading) {
+          flushParagraph();
+          closeList();
+          html += `<h4>${heading[2]}</h4>`;
+          continue;
+        }
+        const list = line.match(/^[-*]\s+(.*)$/);
+        if (list) {
+          flushParagraph();
+          if (listTag !== "ul") {
+            closeList();
+            html += "<ul>";
+            listTag = "ul";
+          }
+          html += `<li>${list[1]}</li>`;
+          continue;
+        }
+        closeList();
+        if (line.trim() === "") {
+          flushParagraph();
+          continue;
+        }
+        paragraph.push(
+          line
+            .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+            .replace(/`([^`]+)`/g, "<code>$1</code>")
+        );
+      }
+      flushParagraph();
+      closeList();
+    });
+    return html;
+  }
+
+  function buildChatLearningHtml(learning) {
+    if (!learning || !Number(learning.concept_count)) return "";
+    const next = learning.next_step || {};
+    const kindLabel = ({ review: "复习", new: "新知识点", practice: "练习" })[next.kind] || next.kind || "";
+    const nextText = next.concept_name
+      ? `建议下一步：${escapeHtml(next.concept_name)}${kindLabel ? `（${kindLabel}）` : ""}`
+      : "";
+    const concepts = (learning.concepts || [])
+      .slice(0, 10)
+      .map(
+        (item) =>
+          `<li>${escapeHtml(item.name)} · 掌握度 ${escapeHtml(String(item.mastery))}% · ${escapeHtml(item.status)}</li>`
+      )
+      .join("");
+    return `<details class="chat-learning"><summary>学习进度（${learning.concept_count} 个知识点 · ${learning.due_count} 个待复习）</summary><div class="chat-learning-summary"><span>薄弱前置：${learning.weak_foundation_count} 个</span>${nextText ? `<span>${nextText}</span>` : ""}</div><ul class="chat-learning-concepts">${concepts}</ul></details>`;
+  }
+
+  function appendChatMessage(kind, text, options = {}) {
+    const container = qs("#chat-messages");
+    if (!container) return null;
+    const welcome = qs("#chat-welcome");
+    if (welcome) welcome.remove();
+    const id = `chat-msg-${++chatMessageId}`;
+    const wrapper = document.createElement("div");
+    wrapper.className = `chat-message is-${kind}`;
+    wrapper.id = id;
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    if (kind === "assistant" && options.pending) {
+      bubble.classList.add("is-pending");
+      bubble.innerHTML =
+        '<i data-lucide="loader-circle" aria-hidden="true"></i><span>正在检索本地资料并生成回答…</span>';
+    } else if (kind === "assistant" && options.error) {
+      bubble.classList.add("is-error");
+      bubble.innerHTML = `<strong>回答失败</strong><span>${escapeHtml(options.error)}</span>`;
+    } else {
+      bubble.textContent = text;
+    }
+    wrapper.appendChild(bubble);
+    container.appendChild(wrapper);
+    refreshIcons();
+    container.scrollTop = container.scrollHeight;
+    return id;
+  }
+
+  function updateChatMessage(id, data) {
+    const wrapper = document.getElementById(id);
+    const bubble = wrapper?.querySelector(".chat-bubble");
+    if (!wrapper || !bubble) return;
+    const container = qs("#chat-messages");
+    if (data.error) {
+      bubble.className = "chat-bubble is-error";
+      bubble.innerHTML = `<strong>回答失败</strong><span>${escapeHtml(data.error)}</span>`;
+    } else {
+      bubble.className = "chat-bubble";
+      const evidence = Array.isArray(data.evidence) ? data.evidence : [];
+      const usage = data.usage || {};
+      const tokens = usage.total_tokens != null ? ` · ${usage.total_tokens} tokens` : "";
+      const latency = data.latency_ms != null ? ` · ${Math.round(data.latency_ms)} ms` : "";
+      const model = data.model ? escapeHtml(data.model) : "模型";
+      const sources = evidence.length
+        ? `<details class="chat-sources"><summary>来源（${evidence.length}）</summary>${evidence
+            .map(
+              (item, index) =>
+                `<div class="chat-source"><strong>[${index + 1}] ${escapeHtml(item.title || "未命名资料")}</strong><span>${escapeHtml(item.source_path || "")}${escapeHtml(chatMessageLocation(item))}</span><blockquote>${escapeHtml(item.snippet || "")}</blockquote></div>`
+            )
+            .join("")}</details>`
+        : "";
+      const learningHtml = buildChatLearningHtml(data.learning);
+      bubble.innerHTML = `<div class="chat-answer">${renderChatMarkdown(data.text || "")}</div><div class="chat-meta">${model}${latency}${tokens}</div>${sources}${learningHtml}`;
+    }
+    refreshIcons();
+    if (container) container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }
+
+  function chatErrorMessage(error) {
+    const message = error?.message || "未知错误";
+    return (
+      {
+        "Model role is not configured":
+          "模型角色尚未配置：请到设置页保存密钥并配置“深度推理”或“快速任务”。",
+        "Model credential is not configured":
+          "模型密钥尚未配置：请到设置页为对应服务商保存密钥。",
+        "Model service is unavailable": "模型服务不可用，请检查网络或端点地址。",
+        "Model service timed out": "模型服务响应超时，请稍后重试。",
+        "Model service rejected the credential": "模型服务拒绝了密钥，请检查密钥是否正确。",
+        "Model service quota or rate limit was reached": "模型服务达到额度或限流，请稍后重试。"
+      }[message] || message
+    );
+  }
+
+  function setChatSending(active) {
+    const button = qs("#chat-send");
+    const input = qs("#chat-input");
+    if (button) {
+      button.disabled = active;
+      button.innerHTML = active
+        ? '<i data-lucide="loader-circle" aria-hidden="true"></i><span>生成中</span>'
+        : '<i data-lucide="send" aria-hidden="true"></i><span>发送</span>';
+    }
+    if (input) input.disabled = active;
+    refreshIcons();
+  }
+
+  async function sendChatQuestion() {
+    const input = qs("#chat-input");
+    const question = input?.value.trim() || "";
+    if (!question || chatSending) return;
+    if (!backendConnected) {
+      toast("本地服务未连接，无法提问", "wifi-off");
+      return;
+    }
+    const role = qs("#chat-role")?.value || "reasoning";
+    const scope = qs("#chat-scope")?.value || "all";
+    appendChatMessage("user", question);
+    input.value = "";
+    input.focus();
+    const pendingId = appendChatMessage("assistant", "", { pending: true });
+    chatSending = true;
+    setChatSending(true);
+    try {
+      const payload = await apiFetch("/chat/ask", {
+        method: "POST",
+        body: JSON.stringify({ question, role, scope })
+      });
+      updateChatMessage(pendingId, {
+        text: payload.answer || "",
+        model: payload.model,
+        latency_ms: payload.latency_ms,
+        usage: payload.usage,
+        evidence: payload.evidence,
+        learning: payload.learning_state
+      });
+    } catch (error) {
+      updateChatMessage(pendingId, { error: chatErrorMessage(error) });
+      const ready = chatRoles.some((item) => item.role === role && item.ready === true);
+      if (!ready) {
+        const status = qs("#chat-model-status");
+        if (status) {
+          status.textContent = "模型未配置：请先保存密钥并配置角色";
+          status.classList.add("is-warning");
+        }
+        if (qs("#chat-go-settings")) qs("#chat-go-settings").hidden = false;
+      }
+    } finally {
+      chatSending = false;
+      setChatSending(false);
+    }
+  }
+
   async function saveModelRole(event) {
     const button = event.currentTarget;
     const role = button.dataset.role;
@@ -1487,6 +1761,7 @@
 
   const pageNames = {
     overview: ["工作台", "总览"],
+    chat: ["本地知识助手", "AI 对话"],
     learning: ["个人进度", "学习"],
     library: ["本地知识", "资料库"],
     research: ["研究工作台", "科研"],
@@ -2507,6 +2782,21 @@
     });
 
     qs("#continue-setup")?.addEventListener("click", () => showPage("settings"));
+    qs("#chat-send")?.addEventListener("click", sendChatQuestion);
+    qs("#chat-input")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        sendChatQuestion();
+      }
+    });
+    qsa(".chat-example").forEach((button) =>
+      button.addEventListener("click", () => {
+        const input = qs("#chat-input");
+        if (input) input.value = button.dataset.example || "";
+        sendChatQuestion();
+      })
+    );
+    qs("#chat-go-settings")?.addEventListener("click", () => showPage("settings"));
     qs("#start-session")?.addEventListener("click", () => focusLearningAttempt());
     qs("#refresh-learning")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;

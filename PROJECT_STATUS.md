@@ -62,6 +62,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - MCP 只读工具服务：`backend/mcp_server.py` 暴露检索、学习、教练、科研、Zotero、运维和审计 8 个只读工具，供 Codex、Cline、CLI 等调用；工具只读、不读取密钥。
 - 受控浏览器自动化：Playwright（Chromium Headless Shell）已安装；动作走“域名白名单 → 风险分级 → 逐步审批 → 审计 → 紧急停止”，未批准的 `open/click/type/close` 不会执行。
 - DeepTutor 安全适配器：`GET /api/deeptutor/status` 检测运行环境与模型角色；`POST /api/deeptutor/run` 支持 `chat` / `deep_solve` / `deep_question` / `deep_research`，复用 `reasoning` / `fast` 角色和 Windows Credential Manager；密钥只在单次 CLI 调用期间写入独立工作区的 `model_catalog.json`，结束后立即还原无密钥基线；调用指标写入 `model_calls`，动作写入审计。
+- 统一 AI 对话：`POST /api/chat/ask` 先检索资料库（自然语言长句自动回退中文关键词）并汇总学习进度，再按 `reasoning` / `fast` 角色调用模型生成带 `[n]` 引用的回答；返回 `answer`、`evidence`、`learning_state`、`semantic_degraded` 与 token 统计，调用写入 `model_calls` 和审计，不持久化提示词或密钥。
 - 官方服务商端点固定到官方 HTTPS 域名；兼容服务只允许 HTTPS 或本机回环 HTTP。
 - `model_calls` 记录来源、耗时、状态和错误码，不记录密钥、响应正文或模型列表。
 - Agent 任务持久化到 SQLite，刷新网页后仍可读取。
@@ -77,7 +78,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 
 2026-08-06 晚部署 PaperQA2 后：工作区与正式目录测试均为 114 passed；正式环境已用 `C:\AI-PC\data\library\paperqa-demo`（2 篇 Markdown 示例）建立论文索引（约 77 秒，含首次模型加载），`/api/paperqa/status` 返回 `index.built=true`、`document_count=2`；在未配置模型角色时提问返回 409，`model_calls` 记录 `paperqa_ask/error/role_not_configured`，审计事件正常。示例文件可在“资料库”中删除，不影响代码。
 
-2026-08-07 已接入定时自动备份与保留策略、DeepTutor 安全适配器，并修复学习计划按 UTC 时间切日导致“明天复习被算到今天”的时区缺陷；工作区完整测试为 `126 passed`。
+2026-08-07 已接入定时自动备份与保留策略、DeepTutor 安全适配器、统一 AI 对话，并修复学习计划按 UTC 时间切日导致“明天复习被算到今天”的时区缺陷；工作区完整测试为 `135 passed`。
 
 ## 4. 已安装但尚未完全接入
 
@@ -87,7 +88,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - Node.js `24.19.0` LTS：安装在项目工具目录，用于前端语法检查和后续工具链。
 - OpenAdapt：已完成项目核验，尚未安装和接入。
 
-安装过程还有以下无用残留，合计约 420 MiB。它们不影响运行；后续可在资源管理器确认路径后删除：
+安装过程的以下无用残留已移到回收区 `C:\AI-PC\backups\trash\2026-08-07-install-residuals`（合计约 420 MiB，可恢复；确认不需要后可直接删除）：
 
 ```text
 C:\AI-PC\tools\downloads\deeptutor-v1.5.9-37c3db6.incomplete-20260806-1039.zip
@@ -126,6 +127,11 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 2. [x] 把用户问题、检索证据、答题结果和当前课程目标组成只读教学上下文（`/api/coach/context`）。
 3. AI 建议只能更新“建议”字段；掌握度仍由真实答题证据更新。
 4. [x] 薄弱前置依赖、可解释进度报告（`/api/coach/report`）和未来 7 天计划（`/api/coach/plan`）已接入。
+
+### P1：统一 AI 对话
+
+1. [x] “AI 对话”页已接入：先检索资料库与学习进度，再按角色生成带引用回答；语义不可用时自动回退中文关键词检索。
+2. [x] 回答附带可展开的“来源”（路径、页码/段落、片段）和“学习进度”核对区；模型角色未配置时返回 409 并写入审计。
 
 ### P1：跨工具调度与模型路由
 
@@ -186,5 +192,6 @@ git status --short
 - Dashboard 在桌面和移动宽度下无重叠，浏览器控制台无语法错误。
 - `/api/tools` 正确区分“已接入”“已安装”“候选”和“未检测到”。
 - `/api/models/test` 不泄露密钥，并正确区分端点错误、鉴权、限流、超时和上游错误。
+- 统一 AI 对话未配置角色返回 409 并记录 `model_calls` 与审计；回答携带 `evidence` 和 `learning_state`，密钥不进入数据库。
 - Agent 重复交接返回 409，跨站或缺动作头返回 403，工具缺失返回 503 且任务保持 `queued`。
 - 正式数据库在线一致性备份完成后再同步和重启服务。

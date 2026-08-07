@@ -163,6 +163,8 @@ SQLite FTS5 是关键词检索的可靠回退。语义检索不可用时，API �
 
 官方 provider 只能使用官方 HTTPS 主机；`openai-compatible` 允许任意 HTTPS 端点，HTTP 仅允许本机回环地址。后续接入实际生成时必须沿用同一网关和审计表，不得在路由中直接调用 LiteLLM 或读取 keyring。
 
+统一对话入口 `POST /api/chat/ask` 只允许 `reasoning` / `fast` 两个文本角色；服务端先按 `scope` 检索资料（自然语言无结果时回退中文关键词）并汇总学习状态，再在同一网关生成回答。响应返回 `answer`、`evidence`、`learning_state` 和 `semantic_degraded`；每次调用记录 `model_calls`（operation=`chat`）与审计事件，不持久化提示词、回答或密钥。
+
 ## 7. 前端约定
 
 `index.html` 是结构和可访问名称的来源，`styles.css` 负责响应式布局，`app.js` 只维护页面状态和 API 交互。所有 API 调用通过 `apiFetch()`，所有用户可见动态文本在插入 HTML 前使用 `escapeHtml()`。

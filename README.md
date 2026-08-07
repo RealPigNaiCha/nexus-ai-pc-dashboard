@@ -1,6 +1,6 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。通用 AI 对话、定时资料监听、自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一 AI 对话（先检索本地资料与学习进度，再生成带引用回答）、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。定时资料监听、自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
 
@@ -231,6 +231,31 @@ Invoke-RestMethod `
 
 返回包含 `answer`、`session_id`、`turn_id`、`model`、`latency_ms` 和 token 统计。首次运行会初始化工作区，之后单次调用通常在数十秒内完成；`deep_research` 可能更久，API 超时上限为 600 秒。
 
+### 5.5 AI 对话（统一问答）
+
+侧边栏“AI 对话”页是适合快速入门的统一问答入口：输入问题后，系统先检索本地资料和学习进度，再调用模型生成带 `[1]`、`[2]` 编号引用的回答；每次回答下方可展开“来源”核对原文路径、页码/段落和片段，“学习进度”折叠区显示待复习与薄弱前置。
+
+- `POST /api/chat/ask`：请求体为 `{question, role, scope, course_id?}`；`role` 只允许 `reasoning` / `fast`，`scope` 为 `all`（资料 + 学习，默认）、`library`（仅资料库）或 `learning`（仅学习进度）。
+- 检索结果与学习状态只在调用瞬间拼入提示词；回答返回 `answer`、`evidence`、`learning_state`、`semantic_degraded`、模型信息与 token 统计。
+- 自然语言长句在词法检索无结果时，会按中文关键词自动回退检索；语义索引不可用时与现有检索一致地降级到 SQLite。
+- 模型角色未配置时返回 `409`，`model_calls` 记录 `chat/error/role_not_configured`，审计事件正常；回答、提示词和密钥都不会持久化。
+
+PowerShell 调用示例：
+
+```powershell
+$payload = @{
+  question = '数列极限的 ε-N 定义是什么？'
+  role     = 'reasoning'
+  scope    = 'all'
+} | ConvertTo-Json
+$body = [System.Text.Encoding]::UTF8.GetBytes($payload)
+Invoke-RestMethod `
+  -Uri 'http://127.0.0.1:8765/api/chat/ask' `
+  -Method Post `
+  -ContentType 'application/json; charset=utf-8' `
+  -Body $body
+```
+
 ## 6. API 密钥与 Windows Credential Manager
 
 密钥接口已经接入 Windows Credential Manager，并验证使用 `keyring.backends.Windows.WinVaultKeyring`。密钥服务名固定为 `Nexus AI-PC API Credentials v1`，支持以下规范服务商 ID：
@@ -448,7 +473,7 @@ uv run pytest
 & '.\.venv\Scripts\python.exe' -c "import sqlite3; c=sqlite3.connect(r'C:\AI-PC\data\database\ai-pc.sqlite3'); print(c.execute('PRAGMA quick_check').fetchone()[0]); c.close()"
 ```
 
-2026-08-07 工作区完整测试为 `126 passed`；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
+2026-08-07 工作区完整测试为 `135 passed`（含统一 AI 对话测试）；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
 
 ## 11. 常见问题
 
@@ -475,6 +500,7 @@ uv run pytest
 - `/api/research/projects/{id}/screening`、`/api/research/projects/{id}/papers/{paper_id}/screening`
 - `/api/paperqa/status`、`/api/paperqa/index`、`/api/paperqa/ask`
 - `/api/deeptutor/status`、`/api/deeptutor/run`
+- `/api/chat/ask`
 - `/api/tools`、`/api/agent/status`
 - `/api/agent/tasks`、`/api/agent/tasks/{id}/handoff`
 - `/api/settings`、`/api/audit`
