@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from .usage import estimate_cost_usd
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -254,6 +256,8 @@ CREATE TABLE IF NOT EXISTS model_calls (
     prompt_tokens INTEGER,
     completion_tokens INTEGER,
     total_tokens INTEGER,
+    session_id TEXT,
+    estimated_cost_usd REAL,
     created_at TEXT NOT NULL
 );
 
@@ -852,13 +856,19 @@ class Database:
         prompt_tokens: int | None = None,
         completion_tokens: int | None = None,
         total_tokens: int | None = None,
+        session_id: str | None = None,
     ) -> None:
+        estimated_cost = (
+            estimate_cost_usd(provider, model, prompt_tokens, completion_tokens)
+            if status == "success"
+            else None
+        )
         self.execute(
             """
             INSERT INTO model_calls(
                 provider, operation, model, role, source, duration_ms, status, error_code,
-                prompt_tokens, completion_tokens, total_tokens, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                prompt_tokens, completion_tokens, total_tokens, session_id, estimated_cost_usd, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 provider,
@@ -872,6 +882,8 @@ class Database:
                 prompt_tokens,
                 completion_tokens,
                 total_tokens,
+                session_id,
+                estimated_cost,
                 utc_now(),
             ),
         )
@@ -1254,6 +1266,8 @@ class Database:
             "prompt_tokens": "INTEGER",
             "completion_tokens": "INTEGER",
             "total_tokens": "INTEGER",
+            "session_id": "TEXT",
+            "estimated_cost_usd": "REAL",
         }
         for name, definition in model_additions.items():
             if name not in model_columns:
@@ -1277,6 +1291,9 @@ class Database:
                 ("ops.backup.enabled", "1", migration_now),
                 ("ops.backup.interval_hours", "24", migration_now),
                 ("ops.backup.keep_count", "14", migration_now),
+                ("library.auto_watch.enabled", "1", migration_now),
+                ("library.auto_watch.interval_seconds", "300", migration_now),
+                ("usage.monthly_budget_usd", "0", migration_now),
             ],
         )
 

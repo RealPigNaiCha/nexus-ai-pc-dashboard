@@ -27,8 +27,14 @@
         <button class="nav-item" type="button" data-page="chat" title="AI 对话" aria-label="AI 对话">
           <i data-lucide="message-circle" aria-hidden="true"></i><span>AI 对话</span>
         </button>
+        <a class="nav-item" href="http://127.0.0.1:3000" target="_blank" rel="noopener" title="多轮对话" aria-label="多轮对话">
+          <i data-lucide="messages-square" aria-hidden="true"></i><span>多轮对话</span>
+        </a>
+        <button class="nav-item" type="button" data-page="usage" title="用量" aria-label="用量">
+          <i data-lucide="gauge" aria-hidden="true"></i><span>用量</span>
+        </button>
         <button class="nav-item" type="button" data-page="learning" title="学习" aria-label="学习">
-          <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span>
+          <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span><span class="nav-badge" id="learning-nav-badge" hidden>0</span>
         </button>
         <button class="nav-item" type="button" data-page="library" title="资料库" aria-label="资料库">
           <i data-lucide="library" aria-hidden="true"></i><span>资料库</span>
@@ -327,6 +333,15 @@
             <p class="library-import-feedback" id="library-import-feedback" role="status" aria-live="polite"></p>
           </form>
 
+          <section class="panel library-auto-panel" aria-labelledby="library-auto-title">
+            <div class="panel-heading"><div><p class="section-kicker">自动监听</p><h2 id="library-auto-title">资料目录自动导入</h2></div><span class="status-label is-neutral" id="library-auto-state">读取中</span></div>
+            <div class="library-auto-controls">
+              <label class="check-control"><input id="library-auto-enabled" type="checkbox"><span>启用自动扫描（检查资料目录与 Vault）</span></label>
+              <label class="library-auto-interval"><span>扫描间隔（秒）</span><input id="library-auto-interval" type="number" min="60" max="86400" step="60" value="300"></label>
+              <div class="field-action wide-field"><button class="secondary-button" id="library-auto-save" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存设置</span></button><button class="secondary-button" id="library-auto-scan" type="button"><i data-lucide="scan-line" aria-hidden="true"></i><span>立即扫描</span></button><span id="library-auto-message" aria-live="polite"></span></div>
+            </div>
+          </section>
+
           <form class="filter-toolbar" id="library-search-form" role="search">
             <label class="search-field"><i data-lucide="search" aria-hidden="true"></i><span class="sr-only">搜索资料内容</span><input id="library-search" name="q" type="search" placeholder="搜索资料内容" autocomplete="off"></label>
             <button class="secondary-button" id="library-search-submit" type="submit"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
@@ -504,6 +519,40 @@
             <div class="panel-heading"><div><p class="section-kicker">执行记录</p><h2 id="automation-log-title">尚无真实自动化日志</h2></div></div>
             <div class="table-wrap"><table><thead><tr><th>时间</th><th>流程</th><th>操作</th><th>结果</th><th>耗时</th></tr></thead><tbody><tr><td colspan="5">接入调度器并实际运行流程后，审计记录会显示在这里。</td></tr></tbody></table></div>
           </section>
+        </section>
+
+        <section class="page" id="page-usage" data-title="用量" data-eyebrow="模型成本">
+          <div class="page-intro">
+            <div><p class="section-kicker">用量与预算</p><h2>模型调用成本一览</h2><p class="supporting-text" id="usage-page-description">统计本月模型调用、Token 与估算成本；设置月度预算后，超出会阻止新的生成请求。</p></div>
+            <button class="secondary-button" id="refresh-usage" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新用量</span></button>
+          </div>
+
+          <div class="usage-grid">
+            <div class="usage-card"><strong id="usage-spent">$0.00</strong><small>本月已用</small></div>
+            <div class="usage-card"><strong id="usage-budget">未设置</strong><small>月度预算</small></div>
+            <div class="usage-card"><strong id="usage-calls">0</strong><small>成功调用</small></div>
+            <div class="usage-card"><strong id="usage-tokens">0</strong><small>总 Token</small></div>
+          </div>
+
+          <section class="panel" aria-labelledby="usage-budget-title">
+            <div class="panel-heading"><div><p class="section-kicker">预算</p><h2 id="usage-budget-title">月度成本上限</h2></div><span class="status-label is-neutral" id="usage-budget-state">未设置</span></div>
+            <form class="usage-budget-form" id="usage-budget-form">
+              <label><span>月度预算（美元，0 表示不限制）</span><input id="usage-budget-input" type="number" min="0" step="0.01" value="0"></label>
+              <div class="form-action"><button class="primary-button" type="submit"><i data-lucide="save" aria-hidden="true"></i><span>保存预算</span></button></div>
+            </form>
+          </section>
+
+          <div class="two-column-layout usage-columns">
+            <section class="panel" aria-labelledby="usage-operations-title">
+              <div class="panel-heading"><div><p class="section-kicker">来源</p><h2 id="usage-operations-title">按操作统计</h2></div><span class="panel-total" id="usage-operations-total">0 项</span></div>
+              <div class="usage-list" id="usage-operations-list"><div class="learning-empty"><i data-lucide="bar-chart-3" aria-hidden="true"></i><div><strong>暂无调用</strong><span>完成一次模型调用后会在这里汇总。</span></div></div></div>
+            </section>
+
+            <section class="panel" aria-labelledby="usage-sessions-title">
+              <div class="panel-heading"><div><p class="section-kicker">会话</p><h2 id="usage-sessions-title">最近会话小计</h2></div><span class="panel-total" id="usage-sessions-total">0 项</span></div>
+              <div class="usage-list" id="usage-sessions-list"><div class="learning-empty"><i data-lucide="messages-square" aria-hidden="true"></i><div><strong>暂无会话</strong><span>NextChat 的多轮对话会按会话记录用量。</span></div></div></div>
+            </section>
+          </div>
         </section>
 
         <section class="page" id="page-settings" data-title="设置" data-eyebrow="系统配置">

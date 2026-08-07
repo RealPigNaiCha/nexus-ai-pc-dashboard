@@ -64,6 +64,9 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - DeepTutor 安全适配器：`GET /api/deeptutor/status` 检测运行环境与模型角色；`POST /api/deeptutor/run` 支持 `chat` / `deep_solve` / `deep_question` / `deep_research`，复用 `reasoning` / `fast` 角色和 Windows Credential Manager；密钥只在单次 CLI 调用期间写入独立工作区的 `model_catalog.json`，结束后立即还原无密钥基线；调用指标写入 `model_calls`，动作写入审计。
 - 统一 AI 对话：`POST /api/chat/ask` 先检索资料库（自然语言长句自动回退中文关键词）并汇总学习进度，再按 `reasoning` / `fast` 角色调用模型生成带 `[n]` 引用的回答；返回 `answer`、`evidence`、`learning_state`、`semantic_degraded` 与 token 统计，调用写入 `model_calls` 和审计，不持久化提示词或密钥。
 - 多轮对话前端：NextChat（MIT）运行在 `127.0.0.1:3000`，通过 `POST /v1/chat/completions`（OpenAI 兼容、支持流式）访问同一本地知识底座；`GET /v1/models` 返回可用角色，调用写入 `model_calls`（operation=`openai_compat_chat`）与审计。
+- 用量小计与月度预算：`/api/usage` 汇总本月成功调用、Token、估算成本与 NextChat 会话小计；`PUT /api/usage/budget` 设置月度上限，超出后生成类接口返回 429。
+- 资料目录自动监听：服务运行期间默认每 5 分钟扫描资料目录与 Vault，自动增量导入并更新词法/语义索引；`/api/library/auto/*` 提供状态、设置与立即扫描。
+- 复习提醒角标：侧边栏“学习”入口按待复习数量显示角标。
 - 官方服务商端点固定到官方 HTTPS 域名；兼容服务只允许 HTTPS 或本机回环 HTTP。
 - `model_calls` 记录来源、耗时、状态和错误码，不记录密钥、响应正文或模型列表。
 - Agent 任务持久化到 SQLite，刷新网页后仍可读取。
@@ -79,7 +82,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 
 2026-08-06 晚部署 PaperQA2 后：工作区与正式目录测试均为 114 passed；正式环境已用 `C:\AI-PC\data\library\paperqa-demo`（2 篇 Markdown 示例）建立论文索引（约 77 秒，含首次模型加载），`/api/paperqa/status` 返回 `index.built=true`、`document_count=2`；在未配置模型角色时提问返回 409，`model_calls` 记录 `paperqa_ask/error/role_not_configured`，审计事件正常。示例文件可在“资料库”中删除，不影响代码。
 
-2026-08-08 已接入 NextChat 多轮对话前端与 OpenAI 兼容流式端点；工作区完整测试为 `140 passed`（含统一 AI 对话与兼容端点测试）。
+2026-08-08 已接入 NextChat 多轮对话、用量小计与月度预算、资料目录自动监听和复习提醒角标；工作区完整测试为 `143 passed`。
 
 ## 4. 已安装但尚未完全接入
 
@@ -140,6 +143,17 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 2. [x] 后端新增 OpenAI 兼容端点 `POST /v1/chat/completions` 与 `GET /v1/models`：支持多轮 `messages[]`、流式 SSE、角色映射（`reasoning` / `fast`）、本地资料检索与引用；密钥仍只在调用瞬间从 Windows Credential Manager 读取。
 3. [x] 每次兼容调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`），不持久化提示词、回答或密钥。
 4. [x] 提供 `start-nextchat.ps1` / `stop-nextchat.ps1`，也可用 `start.ps1 -WithChat` 一次启动 Dashboard 与 NextChat。
+
+### P1：用量与成本预算
+
+1. [x] `model_calls` 新增 `session_id` 与 `estimated_cost_usd`，NextChat 请求通过 `X-AI-PC-Session` 头按会话记账。
+2. [x] `/api/usage` 返回本月成本、Token、按操作统计与最近会话小计；`PUT /api/usage/budget` 设置/关闭月度预算。
+3. [x] 预算用尽后，chat / OpenAI 兼容 / models generate / paperqa / deeptutor 生成入口统一返回 429 并写入审计。
+
+### P1：资料自动监听
+
+1. [x] 服务运行期间默认每 5 分钟扫描 `data/library` 与 `vault`，新增/修改文件自动增量导入并更新索引；相同内容复用不重建。
+2. [x] 提供开关、间隔设置和手动“立即扫描”，自动扫描结果写入审计。
 
 ### P1：跨工具调度与模型路由
 
@@ -202,5 +216,6 @@ git status --short
 - `/api/models/test` 不泄露密钥，并正确区分端点错误、鉴权、限流、超时和上游错误。
 - 统一 AI 对话未配置角色返回 409 并记录 `model_calls` 与审计；回答携带 `evidence` 和 `learning_state`，密钥不进入数据库。
 - OpenAI 兼容端点支持多轮上下文与流式 SSE，未配置角色返回 409；`model_calls` 记录 `openai_compat_chat` / `nextchat`，测试确认密钥不进入响应、SQLite 或审计。
+- 用量接口返回成本与 Token 统计，预算超限时生成入口返回 429 并审计；资料自动扫描可新增、复用和更新文件。
 - Agent 重复交接返回 409，跨站或缺动作头返回 403，工具缺失返回 503 且任务保持 `queued`。
 - 正式数据库在线一致性备份完成后再同步和重启服务。

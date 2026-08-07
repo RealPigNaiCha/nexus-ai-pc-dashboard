@@ -1,6 +1,6 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一 AI 对话（先检索本地资料与学习进度，再生成带引用回答）、NextChat 多轮对话（OpenAI 兼容流式接口）、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。定时资料监听、自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一 AI 对话（先检索本地资料与学习进度，再生成带引用回答）、NextChat 多轮对话（OpenAI 兼容流式接口）、用量小计与月度预算、资料目录自动监听、复习提醒角标、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
 
@@ -277,6 +277,30 @@ Set-Location 'C:\AI-PC\app\dashboard'
 
 每次调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`）。NextChat 源码与构建产物位于 `C:\AI-PC\tools\nextchat`，正式环境需要 Node.js LTS；当前部署脚本会优先使用系统 `node`，找不到时回退到 Codex 自带运行时。
 
+### 5.7 用量小计与月度预算
+
+侧边栏“用量”页汇总本月模型调用：成功次数、Prompt/Completion/总 Token、按来源（操作）统计和按 NextChat 会话的小计。模型密钥仍不进入统计；成本按常见公开价目表估算，未知模型使用通用费率。
+
+设置月度预算后，`/api/chat/ask`、`/v1/chat/completions`、`/api/models/generate`、`/api/paperqa/ask` 和 `/api/deeptutor/run` 在预算用尽后会返回 `429 Monthly model budget exceeded` 并写入审计。预算为 0 表示不限制。
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:8765/api/usage'
+$body = @{ monthly_budget_usd = 5.0 } | ConvertTo-Json
+Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/usage/budget' -Method Put -ContentType 'application/json' -Body $body
+```
+
+### 5.8 资料目录自动监听
+
+服务运行期间默认每 5 分钟扫描 `C:\AI-PC\data\library` 与 `C:\AI-PC\vault`，自动导入新增或修改的 PDF / Markdown / TXT，并同步更新词法与语义索引；相同内容的文件直接复用，不会重复建索引。资料库页提供开关、间隔设置和“立即扫描”，接口为：
+
+- `GET /api/library/auto/status`
+- `PUT /api/library/auto/status`（`{enabled, interval_seconds}`）
+- `POST /api/library/auto/scan`
+
+### 5.9 复习提醒角标
+
+学习页已有“到期复习”列表；现在侧边栏“学习”入口会显示待复习数量角标，服务不可用或没有到期项时自动隐藏。
+
 ## 6. API 密钥与 Windows Credential Manager
 
 密钥接口已经接入 Windows Credential Manager，并验证使用 `keyring.backends.Windows.WinVaultKeyring`。密钥服务名固定为 `Nexus AI-PC API Credentials v1`，支持以下规范服务商 ID：
@@ -494,7 +518,7 @@ uv run pytest
 & '.\.venv\Scripts\python.exe' -c "import sqlite3; c=sqlite3.connect(r'C:\AI-PC\data\database\ai-pc.sqlite3'); print(c.execute('PRAGMA quick_check').fetchone()[0]); c.close()"
 ```
 
-2026-08-08 工作区完整测试为 `140 passed`（含统一 AI 对话与 OpenAI 兼容多轮对话测试）；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
+2026-08-08 工作区完整测试为 `143 passed`（含统一 AI 对话、OpenAI 兼容多轮对话、用量预算与资料自动监听测试）；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
 
 ## 11. 常见问题
 
@@ -523,6 +547,8 @@ uv run pytest
 - `/api/deeptutor/status`、`/api/deeptutor/run`
 - `/api/chat/ask`
 - `/v1/chat/completions`、`/v1/models`
+- `/api/usage`、`/api/usage/budget`
+- `/api/library/auto/status`、`/api/library/auto/scan`
 - `/api/tools`、`/api/agent/status`
 - `/api/agent/tasks`、`/api/agent/tasks/{id}/handoff`
 - `/api/settings`、`/api/audit`

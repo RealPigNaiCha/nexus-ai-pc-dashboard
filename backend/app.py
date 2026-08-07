@@ -76,6 +76,7 @@ from .semantic import (
     SemanticIndex,
 )
 from .tooling import ToolRegistry
+from .usage import budget_exceeded, month_usage, read_monthly_budget, save_monthly_budget
 from .zotero import ZoteroReader, ZoteroReadError
 
 
@@ -96,6 +97,11 @@ class DocumentCreate(StrictModel):
 
 class LibraryImportRequest(StrictModel):
     path: str = Field(min_length=1, max_length=32_000)
+
+
+class LibraryAutoWatchUpdate(StrictModel):
+    enabled: bool = True
+    interval_seconds: int = Field(default=300, ge=60, le=86_400)
 
 
 class LearningAttemptCreate(StrictModel):
@@ -168,6 +174,10 @@ class BackupSettingsUpdate(StrictModel):
         ge=MIN_KEEP_COUNT,
         le=MAX_KEEP_COUNT,
     )
+
+
+class UsageBudgetUpdate(StrictModel):
+    monthly_budget_usd: float = Field(ge=0, le=1_000_000)
 
 
 class CredentialUpdate(StrictModel):
@@ -278,6 +288,7 @@ def create_app(
     tool_registry: ToolRegistry | None = None,
     zotero_database: Path | None = None,
     zotero_auto_sync_hours: float = 6.0,
+    library_auto_scan_seconds: float = 300.0,
     browser_executor: BrowserExecutor | None = None,
     browser_controller: BrowserController | None = None,
     paperqa_service: PaperQAService | None = None,
@@ -308,6 +319,7 @@ def create_app(
     )
     zotero_auto_sync = database_path is None and active_zotero_database.is_file()
     auto_backup_enabled = database_path is None
+    auto_library_watch = database_path is None
     active_agent_handoff = agent_handoff or AgentHandoff(
         agent_workspace,
         agent_task_root,
@@ -360,6 +372,132 @@ def create_app(
             "attachments": record["attachment_count"],
         }
 
+    def read_library_auto_settings(database: Database) -> dict[str, object]:
+        enabled_row = database.query_one(
+            "SELECT value FROM settings WHERE key = 'library.auto_watch.enabled'"
+        )
+        interval_row = database.query_one(
+            "SELECT value FROM settings WHERE key = 'library.auto_watch.interval_seconds'"
+        )
+        enabled = enabled_row is None or enabled_row["value"] != "0"
+        try:
+            interval = max(60, int(interval_row["value"])) if interval_row else 300
+        except (TypeError, ValueError):
+            interval = 300
+        return {"enabled": enabled, "interval_seconds": min(interval, 86_400)}
+
+    def save_library_auto_settings(
+        database: Database,
+        *,
+        enabled: bool,
+        interval_seconds: int,
+    ) -> dict[str, object]:
+        now = utc_now()
+        interval_seconds = max(60, min(86_400, int(interval_seconds)))
+        database.execute(
+            """
+            INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            ("library.auto_watch.enabled", "1" if enabled else "0", now),
+        )
+        database.execute(
+            """
+            INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            ("library.auto_watch.interval_seconds", str(interval_seconds), now),
+        )
+        return {"enabled": enabled, "interval_seconds": interval_seconds}
+
+    def run_library_scan(
+        database: Database,
+        semantic_index: SemanticIndex | None,
+    ) -> dict[str, object]:
+        seen_count = 0
+        imported_count = 0
+        reused_count = 0
+        failed_count = 0
+        chunks_indexed = 0
+        semantic_documents = 0
+        semantic_chunks = 0
+        semantic_degraded = False
+        errors: list[dict[str, str]] = []
+
+        for root in library_roots:
+            if not root.exists():
+                continue
+            try:
+                candidates = discover_source_files(root, library_roots)
+            except (OSError, ValueError) as error:
+                errors.append({"path": str(root), "detail": str(error)})
+                failed_count += 1
+                continue
+            for candidate in candidates:
+                seen_count += 1
+                try:
+                    parsed = parse_document(candidate)
+                    document, count, changed = database.import_document(
+                        title=parsed.title,
+                        document_type=parsed.document_type,
+                        source_path=parsed.source_path,
+                        content_hash=parsed.content_hash,
+                        file_size=parsed.file_size,
+                        chunks=parsed.chunks,
+                    )
+                except (OSError, ValueError) as error:
+                    errors.append({"path": str(candidate), "detail": str(error)})
+                    failed_count += 1
+                    continue
+
+                database.audit(
+                    "library",
+                    "auto_index_document" if changed else "auto_reuse_document",
+                    str(document["id"]),
+                )
+                chunks_indexed += int(count)
+                if changed:
+                    imported_count += 1
+                    if semantic_index is not None:
+                        try:
+                            semantic_result = semantic_index.index_document(
+                                SemanticDocument(
+                                    document_id=int(document["id"]),
+                                    title=str(document["title"]),
+                                    source_path=document.get("source_path"),
+                                    metadata={"document_type": document.get("document_type")},
+                                    chunks=[
+                                        SemanticChunk(
+                                            chunk_id=ordinal,
+                                            page=page_number,
+                                            paragraph=paragraph_number,
+                                            text=content,
+                                        )
+                                        for ordinal, page_number, paragraph_number, content in parsed.chunks
+                                    ],
+                                )
+                            )
+                            semantic_chunks += int(semantic_result.chunks_indexed)
+                            semantic_documents += int(semantic_result.success)
+                            semantic_degraded = semantic_degraded or bool(semantic_result.degraded)
+                        except Exception:
+                            semantic_degraded = True
+                else:
+                    reused_count += 1
+
+        summary = {
+            "seen_count": seen_count,
+            "imported_count": imported_count,
+            "reused_count": reused_count,
+            "failed_count": failed_count,
+            "chunks_indexed": chunks_indexed,
+            "semantic_documents_indexed": semantic_documents,
+            "semantic_chunks_indexed": semantic_chunks,
+            "semantic_degraded": semantic_degraded,
+            "errors": errors,
+        }
+        return summary
+
     async def zotero_auto_sync_loop(database: Database) -> None:
         interval_seconds = max(60.0, zotero_auto_sync_hours * 3600)
         while True:
@@ -386,6 +524,32 @@ def create_app(
             except Exception:
                 logger.exception("Automatic backup failed")
 
+    async def library_auto_scan_loop(database: Database) -> None:
+        while True:
+            settings = read_library_auto_settings(database)
+            await asyncio.sleep(
+                max(60.0, float(settings.get("interval_seconds") or library_auto_scan_seconds))
+            )
+            if not settings.get("enabled", True):
+                continue
+            try:
+                summary = await asyncio.to_thread(
+                    run_library_scan,
+                    database,
+                    getattr(app.state, "semantic_index", None),
+                )
+                app.state.library_auto_status = {
+                    "last_scan": utc_now(),
+                    "last_summary": summary,
+                }
+                if summary.get("imported_count"):
+                    logger.info(
+                        "Library auto scan imported %s document(s)",
+                        summary["imported_count"],
+                    )
+            except Exception:
+                logger.exception("Library auto scan failed")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         literature_client = LiteratureClient(transport=research_transport)
@@ -407,10 +571,13 @@ def create_app(
             app.state.paperqa_service = active_paperqa_service
             auto_sync_task: asyncio.Task[None] | None = None
             backup_task: asyncio.Task[None] | None = None
+            library_scan_task: asyncio.Task[None] | None = None
             if zotero_auto_sync:
                 auto_sync_task = asyncio.create_task(zotero_auto_sync_loop(database))
             if auto_backup_enabled:
                 backup_task = asyncio.create_task(auto_backup_loop(database))
+            if auto_library_watch:
+                library_scan_task = asyncio.create_task(library_auto_scan_loop(database))
             yield
         finally:
             if backup_task is not None:
@@ -423,6 +590,12 @@ def create_app(
                 auto_sync_task.cancel()
                 try:
                     await auto_sync_task
+                except asyncio.CancelledError:
+                    pass
+            if library_scan_task is not None:
+                library_scan_task.cancel()
+                try:
+                    await library_scan_task
                 except asyncio.CancelledError:
                     pass
             literature_client.close()
@@ -706,6 +879,55 @@ def create_app(
             "semantic_chunks_indexed": semantic_chunks,
             "semantic_degraded": semantic_degraded,
             "errors": errors,
+        }
+
+    @app.get("/api/library/auto/status")
+    def library_auto_status(request: Request) -> dict[str, object]:
+        database = db(request)
+        settings = read_library_auto_settings(database)
+        status = getattr(request.app.state, "library_auto_status", None) or {}
+        return {
+            "enabled": settings["enabled"],
+            "interval_seconds": settings["interval_seconds"],
+            "last_scan": status.get("last_scan"),
+            "last_summary": status.get("last_summary"),
+        }
+
+    @app.put("/api/library/auto/status")
+    def update_library_auto_status(
+        payload: LibraryAutoWatchUpdate,
+        request: Request,
+    ) -> dict[str, object]:
+        database = db(request)
+        settings = save_library_auto_settings(
+            database,
+            enabled=payload.enabled,
+            interval_seconds=payload.interval_seconds,
+        )
+        database.audit("library", "auto_watch_update", None)
+        status = getattr(request.app.state, "library_auto_status", None) or {}
+        return {
+            **settings,
+            "last_scan": status.get("last_scan"),
+            "last_summary": status.get("last_summary"),
+        }
+
+    @app.post("/api/library/auto/scan", status_code=status.HTTP_201_CREATED)
+    def run_library_auto_scan(request: Request) -> dict[str, object]:
+        database = db(request)
+        summary = run_library_scan(
+            database,
+            getattr(request.app.state, "semantic_index", None),
+        )
+        request.app.state.library_auto_status = {
+            "last_scan": utc_now(),
+            "last_summary": summary,
+        }
+        database.audit("library", "auto_scan", None)
+        return {
+            "status": "ok",
+            "last_scan": request.app.state.library_auto_status["last_scan"],
+            **summary,
         }
 
     def lexical_search(database: Database, query: str, limit: int) -> list[dict]:
@@ -1347,6 +1569,16 @@ def create_app(
             raise HTTPException(status_code=409, detail="Model role is not configured")
         return canonical, config
 
+    def require_model_budget(database: Database) -> None:
+        exceeded, _, budget = budget_exceeded(database)
+        if not exceeded:
+            return
+        database.audit("usage", "budget_blocked", None, result="exceeded")
+        raise HTTPException(
+            status_code=429,
+            detail="Monthly model budget exceeded",
+        )
+
     def openai_content_to_text(content: object) -> str:
         if isinstance(content, str):
             return content
@@ -1550,6 +1782,7 @@ def create_app(
             category="chat",
             action="ask",
         )
+        require_model_budget(database)
 
         question = payload.question.strip()
         evidence, learning_state, semantic_degraded = chat_context(
@@ -1643,6 +1876,9 @@ def create_app(
         request: Request,
     ):
         database = db(request)
+        session_id = request.headers.get("x-ai-pc-session")
+        if session_id:
+            session_id = session_id.strip()[:128] or None
         normalized: list[dict[str, object]] = []
         for message in payload.messages:
             role = message.role.strip()
@@ -1681,6 +1917,7 @@ def create_app(
             category="chat",
             action="openai_completions",
         )
+        require_model_budget(database)
 
         evidence, learning_state, semantic_degraded = chat_context(
             request,
@@ -1721,6 +1958,7 @@ def create_app(
                 status="cancelled",
                 error_code="cancelled",
                 role=role,
+                session_id=session_id,
             )
             database.audit("chat", "openai_completions", role, result="cancelled")
             raise asyncio.CancelledError from None
@@ -1733,6 +1971,7 @@ def create_app(
                 status="error",
                 error_code="credential_store_unavailable",
                 role=role,
+                session_id=session_id,
             )
             database.audit(
                 "chat",
@@ -1750,6 +1989,7 @@ def create_app(
                 status="error",
                 error_code=error.code,
                 role=role,
+                session_id=session_id,
             )
             database.audit("chat", "openai_completions", role, result=error.code)
             raise HTTPException(status_code=error.status_code, detail=error.detail) from None
@@ -1765,6 +2005,7 @@ def create_app(
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
             total_tokens=result.total_tokens,
+            session_id=session_id,
         )
         database.audit("chat", "openai_completions", role)
 
@@ -1878,6 +2119,17 @@ def create_app(
                 }
             )
         return {"object": "list", "data": data}
+
+    @app.get("/api/usage")
+    def get_usage(request: Request) -> dict[str, object]:
+        return month_usage(db(request))
+
+    @app.put("/api/usage/budget")
+    def update_usage_budget(payload: UsageBudgetUpdate, request: Request) -> dict[str, object]:
+        database = db(request)
+        save_monthly_budget(database, payload.monthly_budget_usd)
+        database.audit("usage", "update_budget", None)
+        return month_usage(database)
 
     @app.get("/api/research/projects")
     def list_projects(request: Request) -> list[dict]:
@@ -2276,6 +2528,7 @@ def create_app(
             database.audit("models", "generate", role, result="role_not_configured")
             raise HTTPException(status_code=409, detail="Model role is not configured")
 
+        require_model_budget(database)
         try:
             result = await request.app.state.model_gateway.generate(
                 provider=canonical,
@@ -2421,6 +2674,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="该模型角色不支持论文问答")
         database = db(request)
         provider, model = paperqa_provider_for_role(request, payload.role)
+        require_model_budget(database)
         try:
             result = await request.app.state.paperqa_service.ask(
                 question=payload.question,
@@ -2573,7 +2827,9 @@ def create_app(
         return active_deeptutor_service.status()
 
     @app.post("/api/deeptutor/run")
-    def deeptutor_run(payload: DeepTutorRunRequest) -> dict[str, object]:
+    def deeptutor_run(payload: DeepTutorRunRequest, request: Request) -> dict[str, object]:
+        database = db(request)
+        require_model_budget(database)
         try:
             return active_deeptutor_service.run(
                 capability=payload.capability,

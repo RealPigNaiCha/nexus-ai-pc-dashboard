@@ -53,6 +53,7 @@
   let chatRoles = [];
   let chatSending = false;
   let chatMessageId = 0;
+  let usageData = null;
 
   async function apiFetch(path, options = {}) {
     if (window.location.protocol === "file:") return null;
@@ -108,6 +109,7 @@
       showAgentUnavailable("本地服务未连接");
       showToolsUnavailable("本地服务未连接");
       showChatUnavailable();
+      showUsageUnavailable();
     }
   }
 
@@ -157,6 +159,7 @@
       await refreshCredentialStatus();
       await loadModelRoles({ quiet: true });
       await loadChatSetup({ quiet: true });
+      await loadUsage({ quiet: true });
       await loadPaperQAStatus({ quiet: true });
       await loadZoteroStatus({ quiet: true });
       await loadOpsStatus({ quiet: true });
@@ -164,6 +167,7 @@
       await loadBrowserActions({ quiet: true });
       await loadSemanticStatus();
       await loadLibraryDocuments({ quiet: true });
+      await loadLibraryAutoStatus({ quiet: true });
       await loadAgentData({ quiet: true });
       await loadTools({ quiet: true });
       await loadOverviewActivity({ quiet: true });
@@ -233,6 +237,8 @@
 
   function showLearningUnavailable(title, detail) {
     learningDashboard = null;
+    const learningBadge = qs("#learning-nav-badge");
+    if (learningBadge) learningBadge.hidden = true;
     const source = qs("#learning-progress-source");
     if (source) { source.textContent = "服务未连接"; source.className = "status-label is-danger"; }
     const dataStatus = qs("#learning-data-status");
@@ -385,6 +391,12 @@
     if (qs("#learning-course-count")) qs("#learning-course-count").textContent = courses.length;
     if (qs("#learning-concept-count")) qs("#learning-concept-count").textContent = Number(summary.concept_count) || 0;
     if (qs("#learning-due-count")) qs("#learning-due-count").textContent = Number(summary.due_count) || 0;
+    const dueCount = Number(summary.due_count) || 0;
+    const learningBadge = qs("#learning-nav-badge");
+    if (learningBadge) {
+      learningBadge.textContent = dueCount > 99 ? "99+" : String(dueCount);
+      learningBadge.hidden = dueCount === 0;
+    }
     if (qs("#learning-study-time")) qs("#learning-study-time").textContent = formatStudyTime(summary.study_seconds);
     if (qs("#learning-progress-total")) qs("#learning-progress-total").textContent = `${concepts.length} 个`;
     if (qs("#learning-due-total")) qs("#learning-due-total").textContent = `${dueReviews.length} 个`;
@@ -416,6 +428,101 @@
     setLearningControls(true, courses, concepts);
     renderOverviewTasks();
     refreshIcons();
+  }
+
+  function formatUsageNumber(value) {
+    return String(Number(value) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+
+  function showUsageUnavailable() {
+    usageData = null;
+    if (qs("#usage-spent")) qs("#usage-spent").textContent = "—";
+    if (qs("#usage-budget")) qs("#usage-budget").textContent = "—";
+    if (qs("#usage-calls")) qs("#usage-calls").textContent = "—";
+    if (qs("#usage-tokens")) qs("#usage-tokens").textContent = "—";
+    if (qs("#usage-budget-state")) { qs("#usage-budget-state").textContent = "服务未连接"; qs("#usage-budget-state").className = "status-label is-danger"; }
+    if (qs("#usage-operations-list")) qs("#usage-operations-list").innerHTML = learningEmptyMarkup("wifi-off", "用量暂不可用", "恢复本地服务后点击“刷新用量”重试。");
+    if (qs("#usage-sessions-list")) qs("#usage-sessions-list").innerHTML = learningEmptyMarkup("wifi-off", "用量暂不可用", "恢复本地服务后点击“刷新用量”重试。");
+  }
+
+  function renderUsage(payload) {
+    const data = payload || {};
+    usageData = data;
+    const spent = Number(data.spent_usd) || 0;
+    const budget = Number(data.budget_usd) || 0;
+    if (qs("#usage-spent")) qs("#usage-spent").textContent = `$${spent.toFixed(4)}`;
+    if (qs("#usage-budget")) qs("#usage-budget").textContent = budget > 0 ? `$${budget.toFixed(2)}` : "未设置";
+    if (qs("#usage-calls")) qs("#usage-calls").textContent = formatUsageNumber(data.calls);
+    if (qs("#usage-tokens")) qs("#usage-tokens").textContent = formatUsageNumber(data.total_tokens);
+    const budgetState = qs("#usage-budget-state");
+    if (budgetState) {
+      budgetState.textContent = budget > 0 ? `已用 $${spent.toFixed(2)} / $${budget.toFixed(2)}` : "未设置";
+      budgetState.className = budget > 0 ? (spent >= budget ? "status-label is-danger" : "status-label is-success") : "status-label is-neutral";
+    }
+    if (qs("#usage-budget-input")) qs("#usage-budget-input").value = String(budget);
+
+    const operations = Array.isArray(data.by_operation) ? data.by_operation : [];
+    const operationsList = qs("#usage-operations-list");
+    if (operationsList) {
+      operationsList.innerHTML = operations.length
+        ? operations.map((item) => `
+          <article class="usage-row">
+            <div><strong>${escapeHtml(item.operation || "未知操作")}</strong><span>${escapeHtml(item.source || "")}</span></div>
+            <div class="usage-row-numbers"><strong>${formatUsageNumber(item.calls)} 次</strong><span>$${(Number(item.cost_usd) || 0).toFixed(4)}</span><small>${formatUsageNumber(item.total_tokens)} tokens</small></div>
+          </article>`).join("")
+        : learningEmptyMarkup("bar-chart-3", "暂无调用", "完成一次模型调用后会在这里汇总。");
+    }
+    if (qs("#usage-operations-total")) qs("#usage-operations-total").textContent = `${operations.length} 项`;
+
+    const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+    const sessionsList = qs("#usage-sessions-list");
+    if (sessionsList) {
+      sessionsList.innerHTML = sessions.length
+        ? sessions.map((item) => `
+          <article class="usage-row">
+            <div><strong>会话 ${escapeHtml(item.session_id || "未知")}</strong><span>最近 ${escapeHtml(formatLearningDateTime(item.last_used_at))}</span></div>
+            <div class="usage-row-numbers"><strong>${formatUsageNumber(item.calls)} 次</strong><span>$${(Number(item.cost_usd) || 0).toFixed(4)}</span><small>${formatUsageNumber(item.total_tokens)} tokens</small></div>
+          </article>`).join("")
+        : learningEmptyMarkup("messages-square", "暂无会话", "NextChat 的多轮对话会按会话记录用量。");
+    }
+    if (qs("#usage-sessions-total")) qs("#usage-sessions-total").textContent = `${sessions.length} 项`;
+    refreshIcons();
+  }
+
+  async function loadUsage({ quiet = false } = {}) {
+    if (!backendConnected) {
+      showUsageUnavailable();
+      return false;
+    }
+    try {
+      const payload = await apiFetch("/usage");
+      renderUsage(payload || {});
+      return true;
+    } catch (error) {
+      showUsageUnavailable();
+      if (!quiet) toast(`用量读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function saveUsageBudget(event) {
+    event.preventDefault();
+    const input = qs("#usage-budget-input");
+    const value = Number(input?.value);
+    if (!Number.isFinite(value) || value < 0) {
+      toast("预算必须是大于等于 0 的数字", "circle-alert");
+      return;
+    }
+    try {
+      const payload = await apiFetch("/usage/budget", {
+        method: "PUT",
+        body: JSON.stringify({ monthly_budget_usd: value })
+      });
+      renderUsage(payload || {});
+      toast("月度预算已保存", "save");
+    } catch (error) {
+      toast(`预算保存失败：${error.message}`, "circle-alert");
+    }
   }
 
   const auditCategoryLabels = {
@@ -1762,6 +1869,7 @@
   const pageNames = {
     overview: ["工作台", "总览"],
     chat: ["本地知识助手", "AI 对话"],
+    usage: ["模型成本", "用量"],
     learning: ["个人进度", "学习"],
     library: ["本地知识", "资料库"],
     research: ["研究工作台", "科研"],
@@ -2122,6 +2230,87 @@
       button.disabled = false;
       button.innerHTML = '<i data-lucide="scan-line" aria-hidden="true"></i><span>导入并索引</span>';
       refreshIcons();
+    }
+  }
+
+  function renderLibraryAutoStatus(payload) {
+    const data = payload || {};
+    const enabled = Boolean(data.enabled);
+    if (qs("#library-auto-enabled")) qs("#library-auto-enabled").checked = enabled;
+    if (qs("#library-auto-interval")) qs("#library-auto-interval").value = String(Number(data.interval_seconds) || 300);
+    const state = qs("#library-auto-state");
+    if (state) {
+      state.textContent = enabled ? `已启用 · ${Number(data.interval_seconds) || 300} 秒` : "已停用";
+      state.className = `status-label ${enabled ? "is-success" : "is-neutral"}`;
+    }
+    const message = qs("#library-auto-message");
+    if (message) {
+      const summary = data.last_summary;
+      if (summary) {
+        message.textContent = `上次扫描 ${formatLearningDateTime(data.last_scan)}：新增 ${Number(summary.imported_count) || 0}、复用 ${Number(summary.reused_count) || 0}、失败 ${Number(summary.failed_count) || 0}`;
+      } else {
+        message.textContent = data.last_scan ? `上次扫描 ${formatLearningDateTime(data.last_scan)}` : "";
+      }
+    }
+  }
+
+  async function loadLibraryAutoStatus({ quiet = false } = {}) {
+    if (!backendConnected) {
+      if (qs("#library-auto-state")) { qs("#library-auto-state").textContent = "服务未连接"; qs("#library-auto-state").className = "status-label is-danger"; }
+      return false;
+    }
+    try {
+      const payload = await apiFetch("/library/auto/status");
+      renderLibraryAutoStatus(payload || {});
+      return true;
+    } catch (error) {
+      if (qs("#library-auto-state")) { qs("#library-auto-state").textContent = "读取失败"; qs("#library-auto-state").className = "status-label is-danger"; }
+      if (!quiet) toast(`自动监听状态读取失败：${error.message}`, "circle-alert");
+      return false;
+    }
+  }
+
+  async function saveLibraryAutoSettings() {
+    const enabled = qs("#library-auto-enabled")?.checked === true;
+    const interval = Number(qs("#library-auto-interval")?.value) || 300;
+    if (interval < 60 || interval > 86400) {
+      toast("扫描间隔需要在 60 到 86400 秒之间", "circle-alert");
+      return;
+    }
+    try {
+      const payload = await apiFetch("/library/auto/status", {
+        method: "PUT",
+        body: JSON.stringify({ enabled, interval_seconds: interval })
+      });
+      renderLibraryAutoStatus(payload || {});
+      toast("自动监听设置已保存", "save");
+    } catch (error) {
+      toast(`自动监听设置保存失败：${error.message}`, "circle-alert");
+    }
+  }
+
+  async function runLibraryAutoScan() {
+    const button = qs("#library-auto-scan");
+    if (button) {
+      button.disabled = true;
+      button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>扫描中…</span>';
+      refreshIcons();
+    }
+    try {
+      const payload = await apiFetch("/library/auto/scan", { method: "POST" });
+      renderLibraryAutoStatus(payload || {});
+      const summary = payload || {};
+      toast(`扫描完成：新增 ${Number(summary.imported_count) || 0}，复用 ${Number(summary.reused_count) || 0}`, "scan-line");
+      await loadLibraryDocuments({ quiet: true });
+      await loadSemanticStatus();
+    } catch (error) {
+      toast(`自动扫描失败：${error.message}`, "circle-alert");
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.innerHTML = '<i data-lucide="scan-line" aria-hidden="true"></i><span>立即扫描</span>';
+        refreshIcons();
+      }
     }
   }
 
@@ -2810,6 +2999,8 @@
       button.innerHTML = '<i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新进度</span>';
       refreshIcons();
     });
+    qs("#refresh-usage")?.addEventListener("click", () => loadUsage());
+    qs("#usage-budget-form")?.addEventListener("submit", saveUsageBudget);
     qs("#learning-course-select")?.addEventListener("change", async (event) => {
       learningCourseId = event.currentTarget.value;
       await loadLearningDashboard({ quiet: true });
@@ -2831,6 +3022,8 @@
       if (button) focusLearningAttempt(button.dataset.recordConcept);
     });
     qs("#library-import-form")?.addEventListener("submit", importLibraryPath);
+    qs("#library-auto-save")?.addEventListener("click", saveLibraryAutoSettings);
+    qs("#library-auto-scan")?.addEventListener("click", runLibraryAutoScan);
     qs("#focus-import-path")?.addEventListener("click", () => {
       qs("#library-import-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
       qs("#library-import-path")?.focus({ preventScroll: true });

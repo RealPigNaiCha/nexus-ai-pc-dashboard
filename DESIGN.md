@@ -167,6 +167,10 @@ SQLite FTS5 是关键词检索的可靠回退。语义检索不可用时，API �
 
 为复用成熟的本地多轮对话前端，后端同时暴露 OpenAI 兼容入口 `POST /v1/chat/completions` 与 `GET /v1/models`。该入口接受 `messages[]`（system/user/assistant）、`model`（`reasoning` / `fast`，或按已配置模型名自动映射）、`stream`、`max_tokens`、`temperature`；最近一条用户消息仍走同一套本地资料检索与学习状态汇总，完整多轮记录拼入提示词，模型密钥仍只在调用瞬间从 Windows Credential Manager 读取。流式响应返回标准 SSE 分块；每次调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`）。
 
+用量与预算：`model_calls` 记录 `session_id`（NextChat 通过 `X-AI-PC-Session` 头按会话记账）和按常见公开价目表估算的 `estimated_cost_usd`；`/api/usage` 汇总本月调用、Token、成本、按操作统计与最近会话小计，`PUT /api/usage/budget` 设置月度上限。所有生成类入口（chat、OpenAI 兼容、models generate、paperqa、deeptutor）在预算用尽后返回 429 并写审计，预算为 0 表示不限制。
+
+资料自动监听：服务运行期间默认每 5 分钟扫描 `data/library` 与 `vault`，对新增/修改文件执行与手动导入相同的增量索引（词法 + 语义），相同内容直接复用；`/api/library/auto/status`、`/api/library/auto/scan` 提供状态、设置和手动触发。自动扫描结果写入审计，不写入任何提示词或回答。
+
 ## 7. 前端约定
 
 `index.html` 是结构和可访问名称的来源，`styles.css` 负责响应式布局，`app.js` 只维护页面状态和 API 交互。所有 API 调用通过 `apiFetch()`，所有用户可见动态文本在插入 HTML 前使用 `escapeHtml()`。
