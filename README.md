@@ -435,22 +435,34 @@ Invoke-RestMethod 'http://127.0.0.1:8765/api/health'
 
 启动时会执行向前兼容的数据库迁移。不要用新版数据库去覆盖旧版应用；需要回退应用时应同时回退匹配的数据库备份。
 
-## 8. 登录自启动与日志
+## 8. 点击启动与日志
 
-注册当前 Windows 用户登录后的计划任务：
+日常启动直接双击：
+
+```text
+C:\AI-PC\start-ai-pc.bat
+```
+
+或双击中文名版本 `C:\AI-PC\启动AI-PC.bat`。脚本会启动本地服务并自动打开 Dashboard。
+
+命令行方式：
 
 ```powershell
 Set-Location 'C:\AI-PC\app\dashboard'
-.\install-startup.ps1
-Get-ScheduledTask -TaskName 'AI-PC Dashboard'
+.\start.ps1
 ```
 
-该任务以当前用户身份运行 `start.ps1 -NoBrowser`，并忽略重复实例。当前机器已经注册名为 `AI-PC Dashboard` 的登录任务；重复执行安装脚本会更新现有任务。
-
-移除自启动不会删除应用或数据：
+默认不再使用开机自启。如果确实需要登录自启动，可手动安装（可选）：
 
 ```powershell
-Unregister-ScheduledTask -TaskName 'AI-PC Dashboard' -Confirm:$false
+Set-Location 'C:\AI-PC\app\dashboard'
+.\install-startup.ps1 -Install
+```
+
+停用自启动（不会删除应用或数据）：
+
+```powershell
+.\install-startup.ps1
 ```
 
 排错时查看：

@@ -183,7 +183,7 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 ### P2：运维与迁移
 
 1. [x] Dashboard 已接入备份状态、最近一次一致性检查和磁盘空间告警（`/api/ops/status`、`/api/ops/backup`）；定时自动备份与保留策略已接入（`/api/ops/backup/settings`）。
-2. 512 GB 新系统盘已就位；继续复测数据库、向量点、中文检索、凭据状态和登录自启动。
+2. 512 GB 新系统盘已就位；继续复测数据库、向量点、中文检索、凭据状态和点击启动脚本。
 3. 为版本升级增加数据库备份、迁移检查和回滚说明。
 
 ### P2：受控自我改进
