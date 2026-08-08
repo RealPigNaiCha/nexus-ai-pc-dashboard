@@ -39,7 +39,12 @@ from .credentials import (
 from .database import Database, utc_now
 from .deeptutor import DeepTutorError, DeepTutorService
 from .learning import review_concept
-from .library import discover_source_files, parse_document, resolve_source_path
+from .library import (
+    SUPPORTED_TYPES,
+    discover_source_files,
+    parse_document,
+    resolve_source_path,
+)
 from .model_gateway import (
     MODEL_ROLES,
     ModelGateway,
@@ -70,6 +75,13 @@ from .research import (
     LiteratureClient,
     ResearchUpstreamError,
     build_research_export_markdown,
+)
+from .routing import (
+    ROUTING_TASKS,
+    get_routing_rules,
+    resolve_role,
+    routing_rules_payload,
+    save_routing_rule,
 )
 from .semantic import (
     DEFAULT_COLLECTION_NAME,
@@ -241,6 +253,11 @@ class BrowserActionCreate(StrictModel):
 
 class BrowserAllowlistUpdate(StrictModel):
     domains: list[str] = Field(default_factory=list, max_length=50)
+
+
+class RoutingRuleUpdate(StrictModel):
+    mode: Literal["auto", "reasoning", "fast"]
+    prefer_low_cost: bool = False
 
 
 class PaperQAIndexRequest(StrictModel):
@@ -783,19 +800,18 @@ def create_app(
         database.audit("library", "create_document", str(document_id))
         return database.query_one("SELECT * FROM documents WHERE id = ?", (document_id,)) or {}
 
-    @app.post("/api/library/import", status_code=status.HTTP_201_CREATED)
-    def import_library_document(payload: LibraryImportRequest, request: Request) -> dict:
-        try:
-            source_path = resolve_source_path(payload.path, library_roots)
-            source_files = discover_source_files(source_path, library_roots)
-        except PermissionError as error:
-            raise HTTPException(status_code=403, detail=str(error)) from error
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=404, detail=str(error)) from error
-        except ValueError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from error
+    def index_document_files(
+        database: Database,
+        source_files: Sequence[Path],
+        active_semantic_index: object | None,
+        *,
+        audit_label: str = "library",
+    ) -> dict[str, object]:
+        """Parse and index files into SQLite + semantic index.
 
-        database = db(request)
+        Shared by the library import endpoint and the Zotero attachment
+        importer so both keep identical provenance and audit behavior.
+        """
         indexed: list[dict] = []
         errors: list[dict[str, str]] = []
         total_chunks = 0
@@ -803,7 +819,6 @@ def create_app(
         semantic_chunks = 0
         semantic_documents = 0
         semantic_degraded = False
-        active_semantic_index = getattr(request.app.state, "semantic_index", None)
         for candidate in source_files:
             try:
                 parsed = parse_document(candidate)
@@ -820,7 +835,7 @@ def create_app(
                 continue
 
             database.audit(
-                "library",
+                audit_label,
                 "index_document" if changed else "reuse_document",
                 str(document["id"]),
             )
@@ -852,29 +867,14 @@ def create_app(
                 except Exception:
                     semantic_degraded = True
                 database.audit(
-                    "library",
+                    audit_label,
                     "semantic_index" if not semantic_degraded else "semantic_fallback",
                     str(document["id"]),
                     "success" if not semantic_degraded else "degraded",
                 )
 
-        if not indexed:
-            detail = errors[0]["detail"] if errors else "No documents were indexed"
-            raise HTTPException(status_code=422, detail=detail)
-
-        if source_path.is_file():
-            document = indexed[0]
-            return {
-                "document": document,
-                "chunks_indexed": total_chunks,
-                "changed": changed_count == 1,
-                "semantic_documents_indexed": semantic_documents,
-                "semantic_chunks_indexed": semantic_chunks,
-                "semantic_degraded": semantic_degraded,
-            }
-
         return {
-            "documents": indexed,
+            "indexed": indexed,
             "documents_seen": len(source_files),
             "imported_count": changed_count,
             "reused_count": len(indexed) - changed_count,
@@ -885,6 +885,54 @@ def create_app(
             "semantic_chunks_indexed": semantic_chunks,
             "semantic_degraded": semantic_degraded,
             "errors": errors,
+        }
+
+    @app.post("/api/library/import", status_code=status.HTTP_201_CREATED)
+    def import_library_document(payload: LibraryImportRequest, request: Request) -> dict:
+        try:
+            source_path = resolve_source_path(payload.path, library_roots)
+            source_files = discover_source_files(source_path, library_roots)
+        except PermissionError as error:
+            raise HTTPException(status_code=403, detail=str(error)) from error
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        database = db(request)
+        result = index_document_files(
+            database,
+            source_files,
+            getattr(request.app.state, "semantic_index", None),
+        )
+        indexed = result["indexed"]
+        if not indexed:
+            detail = result["errors"][0]["detail"] if result["errors"] else "No documents were indexed"
+            raise HTTPException(status_code=422, detail=detail)
+
+        if source_path.is_file():
+            document = indexed[0]
+            return {
+                "document": document,
+                "chunks_indexed": result["chunks_indexed"],
+                "changed": result["imported_count"] == 1,
+                "semantic_documents_indexed": result["semantic_documents_indexed"],
+                "semantic_chunks_indexed": result["semantic_chunks_indexed"],
+                "semantic_degraded": result["semantic_degraded"],
+            }
+
+        return {
+            "documents": indexed,
+            "documents_seen": result["documents_seen"],
+            "imported_count": result["imported_count"],
+            "reused_count": result["reused_count"],
+            "failed_count": result["failed_count"],
+            "chunks_indexed": result["chunks_indexed"],
+            "changed": result["changed"],
+            "semantic_documents_indexed": result["semantic_documents_indexed"],
+            "semantic_chunks_indexed": result["semantic_chunks_indexed"],
+            "semantic_degraded": result["semantic_degraded"],
+            "errors": result["errors"],
         }
 
     @app.get("/api/library/auto/status")
@@ -1268,6 +1316,84 @@ def create_app(
             parameters,
         )
 
+    @app.get("/api/learning/review/queue")
+    def learning_review_queue(
+        request: Request,
+        course_id: int | None = Query(default=None, gt=0),
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> dict[str, object]:
+        """Build an ordered review queue: due reviews, new concepts, foundations."""
+        database = db(request)
+        concepts = learning_progress(request, course_id)
+        now = utc_now()
+        due = [c for c in concepts if c.get("due_at") and c["due_at"] <= now]
+        due.sort(key=lambda item: str(item.get("due_at") or ""))
+        new_items = [c for c in concepts if int(c["attempt_count"]) == 0]
+
+        foundation_by_id = {int(c["id"]): c for c in concepts}
+        foundation_ids: set[int] = set()
+        scoped_ids = [int(c["id"]) for c in concepts]
+        if scoped_ids:
+            placeholders = ",".join("?" for _ in scoped_ids)
+            prerequisite_rows = database.query_all(
+                f"""
+                SELECT prerequisite.concept_id, prerequisite.prerequisite_id,
+                       prerequisite_concept.mastery AS prerequisite_mastery,
+                       prerequisite_concept.status AS prerequisite_status
+                FROM learning_prerequisites AS prerequisite
+                JOIN learning_concepts AS prerequisite_concept
+                  ON prerequisite_concept.id = prerequisite.prerequisite_id
+                WHERE prerequisite.concept_id IN ({placeholders})
+                """,
+                tuple(scoped_ids),
+            )
+            for row in prerequisite_rows:
+                weak = (
+                    float(row["prerequisite_mastery"] or 0) < 60
+                    or str(row["prerequisite_status"] or "not_started")
+                    in {"not_started", "review"}
+                )
+                prerequisite_id = int(row["prerequisite_id"])
+                if weak and prerequisite_id in foundation_by_id:
+                    foundation_ids.add(prerequisite_id)
+        foundation_items = [
+            foundation_by_id[concept_id] for concept_id in sorted(foundation_ids)
+        ]
+
+        queue: list[dict[str, object]] = []
+        seen: set[int] = set()
+        for item, kind in (
+            [(c, "review") for c in due]
+            + [(c, "new") for c in new_items]
+            + [(c, "foundation") for c in foundation_items]
+        ):
+            concept_id = int(item["id"])
+            if concept_id in seen:
+                continue
+            seen.add(concept_id)
+            hint = (
+                f"回忆并复述“{item['name']}”的定义或要点，指出哪些地方还不确定。"
+                if kind == "review"
+                else f"用自己的话解释“{item['name']}”，并给出一个例子或反例。"
+                if kind == "new"
+                else f"先补上前置知识点“{item['name']}”的基础，再尝试回答一个相关练习。"
+            )
+            queue.append({**item, "kind": kind, "prompt_hint": hint})
+            if len(queue) >= limit:
+                break
+
+        return {
+            "generated_at": now,
+            "limit": limit,
+            "summary": {
+                "total": len(queue),
+                "due_count": sum(1 for item in queue if item["kind"] == "review"),
+                "new_count": sum(1 for item in queue if item["kind"] == "new"),
+                "foundation_count": sum(1 for item in queue if item["kind"] == "foundation"),
+            },
+            "items": queue,
+        }
+
     def coach_snapshot(request: Request, course_id: int | None) -> dict[str, object]:
         database = db(request)
         concepts = learning_progress(request, course_id)
@@ -1620,6 +1746,8 @@ def create_app(
 
     def openai_requested_role(database: Database, requested_model: str) -> str:
         model = requested_model.strip()
+        if model == "auto":
+            return "auto"
         roles = {item["role"]: item for item in database.get_model_roles()}
         if model in roles:
             return model
@@ -1777,9 +1905,15 @@ def create_app(
     @app.post("/api/chat/ask")
     async def chat_ask(payload: ChatAskRequest, request: Request) -> dict[str, object]:
         role = payload.role.strip()
-        if role not in {"reasoning", "fast"}:
-            raise HTTPException(status_code=422, detail="Chat supports only reasoning and fast roles")
+        if role not in {"reasoning", "fast", "auto"}:
+            raise HTTPException(
+                status_code=422,
+                detail="Chat supports only reasoning, fast and auto roles",
+            )
         database = db(request)
+        question = payload.question.strip()
+        if role == "auto":
+            role = resolve_role(database, "chat", "auto", text=question)
         canonical, config = require_chat_role(
             database,
             role,
@@ -1790,7 +1924,6 @@ def create_app(
         )
         require_model_budget(database)
 
-        question = payload.question.strip()
         evidence, learning_state, semantic_degraded = chat_context(
             request,
             question,
@@ -1912,7 +2045,12 @@ def create_app(
             )
 
         conversation, extra_system = openai_conversation_prompt(normalized)
-        role = openai_requested_role(database, payload.model)
+        role = resolve_role(
+            database,
+            "openai_compat",
+            openai_requested_role(database, payload.model),
+            text=latest_user,
+        )
         if role not in {"reasoning", "fast"}:
             role = "reasoning"
         canonical, config = require_chat_role(
@@ -2126,6 +2264,14 @@ def create_app(
                     "owned_by": item.get("provider") or "local",
                 }
             )
+        data.append(
+            {
+                "id": "auto",
+                "object": "model",
+                "created": int(datetime.now(timezone.utc).timestamp()),
+                "owned_by": "nexus-routing",
+            }
+        )
         return {"object": "list", "data": data}
 
     @app.get("/api/usage")
@@ -2552,11 +2698,13 @@ def create_app(
     @app.post("/api/models/generate")
     async def generate_model_text(payload: ModelGenerateRequest, request: Request) -> dict[str, object]:
         role = payload.role.strip()
+        database = db(request)
+        if role == "auto":
+            role = resolve_role(database, "generate", "auto", text=payload.prompt)
         if role == "embedding":
             raise HTTPException(status_code=422, detail="Embedding role does not generate text")
         if role not in MODEL_ROLES:
             raise HTTPException(status_code=422, detail="Unsupported model role")
-        database = db(request)
         roles = {item["role"]: item for item in database.get_model_roles()}
         config = roles.get(role)
         canonical = (
@@ -2653,6 +2801,30 @@ def create_app(
             },
         }
 
+    @app.get("/api/routing/rules")
+    def list_routing_rules(request: Request) -> dict[str, object]:
+        return routing_rules_payload(get_routing_rules(db(request)))
+
+    @app.put("/api/routing/rules/{task}")
+    def update_routing_rule(
+        task: str,
+        payload: RoutingRuleUpdate,
+        request: Request,
+    ) -> dict[str, object]:
+        database = db(request)
+        if task not in ROUTING_TASKS:
+            raise HTTPException(status_code=404, detail="Routing task not found")
+        try:
+            rule = save_routing_rule(
+                database,
+                task=task,
+                mode=payload.mode,
+                prefer_low_cost=payload.prefer_low_cost,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        return rule
+
     @app.get("/api/zotero/status")
     def zotero_status(request: Request) -> dict[str, object]:
         database = db(request)
@@ -2673,6 +2845,65 @@ def create_app(
             return run_zotero_sync(database)
         except ZoteroReadError as error:
             raise HTTPException(status_code=503, detail=str(error)) from None
+
+    @app.post("/api/zotero/import-attachments", status_code=status.HTTP_201_CREATED)
+    def import_zotero_attachments(request: Request) -> dict[str, object]:
+        """Import synced Zotero attachment files into the local library.
+
+        Only files recorded by the read-only Zotero snapshot and physically
+        located under the Zotero data directory are accepted. They are parsed
+        with the same pipeline as the library importer (hash dedupe + semantic
+        indexing when available).
+        """
+        database = db(request)
+        zotero_root = active_zotero_database.parent.resolve(strict=False)
+        candidates: list[Path] = []
+        seen_paths: set[str] = set()
+        for raw in database.list_zotero_attachment_paths():
+            try:
+                candidate = Path(raw).resolve(strict=True)
+            except OSError:
+                continue
+            if (
+                not candidate.is_file()
+                or candidate.suffix.lower() not in SUPPORTED_TYPES
+                or str(candidate) in seen_paths
+            ):
+                continue
+            try:
+                candidate.relative_to(zotero_root)
+            except ValueError:
+                continue
+            seen_paths.add(str(candidate))
+            candidates.append(candidate)
+
+        if not candidates:
+            raise HTTPException(
+                status_code=422,
+                detail="没有可导入的 Zotero 附件；请先同步 Zotero，并确认附件为 PDF / Markdown / TXT",
+            )
+        result = index_document_files(
+            database,
+            candidates,
+            getattr(request.app.state, "semantic_index", None),
+            audit_label="zotero",
+        )
+        if not result["indexed"]:
+            detail = result["errors"][0]["detail"] if result["errors"] else "No documents were indexed"
+            raise HTTPException(status_code=422, detail=detail)
+        database.audit("zotero", "import_attachments", str(len(candidates)))
+        return {
+            "documents": result["indexed"],
+            "attachment_files_seen": len(candidates),
+            "imported_count": result["imported_count"],
+            "reused_count": result["reused_count"],
+            "failed_count": result["failed_count"],
+            "chunks_indexed": result["chunks_indexed"],
+            "semantic_documents_indexed": result["semantic_documents_indexed"],
+            "semantic_chunks_indexed": result["semantic_chunks_indexed"],
+            "semantic_degraded": result["semantic_degraded"],
+            "errors": result["errors"],
+        }
 
     @app.get("/api/paperqa/status")
     def paperqa_status(request: Request) -> dict[str, object]:
@@ -2719,15 +2950,18 @@ def create_app(
         payload: PaperQAAskRequest,
         request: Request,
     ) -> dict[str, object]:
-        if payload.role not in SUPPORTED_PAPERQA_ROLES:
-            raise HTTPException(status_code=422, detail="该模型角色不支持论文问答")
+        role = payload.role.strip()
         database = db(request)
-        provider, model = paperqa_provider_for_role(request, payload.role)
+        if role == "auto":
+            role = resolve_role(database, "paperqa", "auto", text=payload.question)
+        if role not in SUPPORTED_PAPERQA_ROLES:
+            raise HTTPException(status_code=422, detail="该模型角色不支持论文问答")
+        provider, model = paperqa_provider_for_role(request, role)
         require_model_budget(database)
         try:
             result = await request.app.state.paperqa_service.ask(
                 question=payload.question,
-                role=payload.role,
+                role=role,
                 max_tokens=payload.max_tokens,
                 temperature=payload.temperature,
             )
@@ -2739,10 +2973,10 @@ def create_app(
                 duration_ms=0,
                 status="error",
                 error_code=error.code,
-                role=payload.role,
+                role=role,
                 model=model,
             )
-            database.audit("paperqa", "ask", payload.role, result=error.code)
+            database.audit("paperqa", "ask", role, result=error.code)
             raise HTTPException(
                 status_code=error.status_code, detail=error.detail
             ) from None
@@ -2754,13 +2988,13 @@ def create_app(
                 duration_ms=0,
                 status="error",
                 error_code="credential_store_unavailable",
-                role=payload.role,
+                role=role,
                 model=model,
             )
             database.audit(
                 "paperqa",
                 "ask",
-                payload.role,
+                role,
                 result="credential_store_unavailable",
             )
             raise HTTPException(
@@ -2772,13 +3006,13 @@ def create_app(
             source="dashboard_paperqa",
             duration_ms=int(result["latency_ms"]),
             status="success",
-            role=payload.role,
+            role=role,
             model=result.get("model") or model,
             prompt_tokens=result.get("prompt_tokens"),
             completion_tokens=result.get("completion_tokens"),
             total_tokens=result.get("total_tokens"),
         )
-        database.audit("paperqa", "ask", payload.role)
+        database.audit("paperqa", "ask", role)
         return result
 
     @app.get("/api/ops/status")
@@ -2879,11 +3113,14 @@ def create_app(
     def deeptutor_run(payload: DeepTutorRunRequest, request: Request) -> dict[str, object]:
         database = db(request)
         require_model_budget(database)
+        role = payload.role.strip()
+        if role == "auto":
+            role = resolve_role(database, "deeptutor", "auto", text=payload.prompt)
         try:
             return active_deeptutor_service.run(
                 capability=payload.capability,
                 prompt=payload.prompt,
-                role=payload.role,
+                role=role,
                 language=payload.language,
                 session_id=payload.session_id,
                 timeout_seconds=float(payload.timeout_seconds),

@@ -48,16 +48,19 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - 本地 Dashboard、健康检查、设置与审计。
 - PDF、Markdown、TXT 导入；SQLite 关键词检索；BGE + Qdrant 语义和混合检索。
 - FSRS 学习进度、课程与知识点、答题记录和下一次复习时间。
+- 自动复习调度执行器：`GET /api/learning/review/queue` 按“到期复习 → 新知识点 → 薄弱前置”生成队列，学习页“开始复习”逐项带入题目提示、保存答题并自动推进，结束后给出本轮汇总。
 - Crossref/OpenAlex 科研检索、DOI 去重、论文筛选与研究笔记。
 - 科研证据表与可复现检索式导出：`GET /api/research/projects/{id}/export` 生成 Markdown（研究问题、检索式与数据来源、证据表、筛选汇总、研究日志），科研页“可追溯性”面板可一键下载 `.md` 文件，导出动作写入审计。
 - PaperQA2 论文问答：`POST /api/paperqa/index` 对 `data\library` / `vault` 内 PDF/MD/TXT 建立本地向量快照；`POST /api/paperqa/ask` 复用 `reasoning` / `fast` 模型角色，按调用从 Windows Credential Manager 读取密钥并在进程内构造 LiteLLM Router，返回 `answer`、`context`、`references` 和 `sources`；索引文件只存向量与文档元数据，不存密钥。
 - API 密钥写入 Windows Credential Manager，只返回配置状态。
 - `POST /api/models/test`：按调用读取密钥并执行只读模型连通性测试。
 - 模型角色路由：`reasoning` / `fast` / `vision` 的服务商、模型和 API 地址持久化在 SQLite 设置中，用户可查看和修改；`embedding` 固定使用本地 BGE，不接受外部配置。
+- 模型路由表（auto）：`/api/routing/rules` 按任务（chat / openai_compat / paperqa / deeptutor / generate）持久化路由规则；`auto` 按问题复杂度选择 `reasoning` / `fast`，显式角色始终优先；“低预算优先”在月度预算剩余不足 25% 时自动改用快速任务；更新规则写入审计。
 - `POST /api/models/generate`：受控的最小文本生成调用，只在调用瞬间读取密钥，按角色选择模型；`model_calls` 记录服务商、模型、角色、耗时和 token，不保存提示词正文或密钥。
 - 学习教练：`GET /api/coach/report` 生成可解释进度报告（掌握度、答题趋势、薄弱前置依赖、下一步建议）；`GET /api/coach/context` 把用户问题、带引用资料证据和 FSRS 学习状态组装为只读教学上下文。
 - 未来 7 天学习计划：`GET /api/coach/plan` 按到期复习、未开始知识点和薄弱前置生成每日安排，并基于答题时长估算总耗时。
 - Zotero 只读同步：`POST /api/zotero/sync` 只读扫描 `C:\AI-PC\data\zotero\zotero.sqlite`，持久化条目、集合、作者和附件路径；服务运行期间每 6 小时自动同步一次；不复制文献文件，不读取任何凭据。
+- Zotero 附件导入资料库：`POST /api/zotero/import-attachments` 只接受快照记录且位于 `C:\AI-PC\data\zotero` 内的 PDF / Markdown / TXT，与资料库共用哈希去重、FTS5 与本地语义索引管道；数据目录外的附件一律忽略，导入写入审计。
 - 运维与备份：`GET /api/ops/status` 报告数据库完整性、磁盘剩余和最近备份；`POST /api/ops/backup` 使用 SQLite 在线备份 API 生成一致性备份并校验。
 - 定时自动备份：服务运行期间按 `ops.backup.*` 设置自动执行在线一致性备份，可配置启用开关、间隔（1–720 小时）和保留份数（1–365）；`GET/PUT /api/ops/backup/settings` 读写设置，超过保留份数的旧备份会被清理并记录审计。
 - MCP 只读工具服务：`backend/mcp_server.py` 暴露检索、学习、教练、科研、Zotero、运维和审计 8 个只读工具，供 Codex、Cline、CLI 等调用；工具只读、不读取密钥。
@@ -84,12 +87,12 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 
 2026-08-06 晚部署 PaperQA2 后：工作区与正式目录测试均为 114 passed；正式环境已用 `C:\AI-PC\data\library\paperqa-demo`（2 篇 Markdown 示例）建立论文索引（约 77 秒，含首次模型加载），`/api/paperqa/status` 返回 `index.built=true`、`document_count=2`；在未配置模型角色时提问返回 409，`model_calls` 记录 `paperqa_ask/error/role_not_configured`，审计事件正常。示例文件可在“资料库”中删除，不影响代码。
 
-2026-08-08 已接入多轮对话（并入 AI 对话页）、用量小计与月度预算、资料目录自动监听和复习提醒角标；同日新增科研证据表导出与反讨好提示词增强，工作区完整测试为 `145 passed`。
+2026-08-08 已接入多轮对话（并入 AI 对话页）、用量小计与月度预算、资料目录自动监听和复习提醒角标；同日新增科研证据表导出、反讨好提示词增强、模型路由表（auto）、Zotero 附件导入和自动复习调度执行器，工作区完整测试为 `152 passed`。
 
 ## 4. 已安装但尚未完全接入
 
 - Codex CLI `0.146.1`：已放在固定绝对路径；Dashboard 不继承个人 Codex 登录态，暂不作为网页自动执行器。
-- Zotero `9.0.6`：已安装，Dashboard 已接入只读同步（条目、集合、作者、附件路径）与每 6 小时自动同步；Zotero 附件 PDF 尚未纳入资料库导入白名单。
+- Zotero `9.0.6`：已安装，Dashboard 已接入只读同步（条目、集合、作者、附件路径）、每 6 小时自动同步与附件导入资料库；附件导入仅接受 Zotero 数据目录内由快照记录的 PDF / Markdown / TXT。
 - Obsidian `1.13.4`：Vault 已作为 Markdown 资料与笔记目录使用，但没有双向结构化同步。
 - Node.js `24.19.0` LTS：安装在项目工具目录，用于前端语法检查和后续工具链。
 - OpenAdapt：已完成项目核验，尚未安装和接入。
@@ -115,6 +118,7 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 - 电脑自动化必须有动作白名单、逐步确认、审计和紧急停止，不能直接给予全局无人值守权限。
 - 调度桥梁不能静默继承 Codex 登录态；跨工具同步只传递版本化任务、精简上下文、引用和结果状态。
 - 多模型路由必须保留用户选择权，并按成本、质量、隐私、延迟和任务角色记录决策。
+- Zotero 附件导入只接受“Zotero 快照记录 + 位于 `C:\AI-PC\data\zotero` 内”的 PDF / Markdown / TXT；任意其他路径不被当作导入源。
 - 系统可以提出自我改进，但正式更新必须经过隔离、测试、人工批准、备份和可回滚部署。
 
 ## 6. 下一步工作，按优先级
@@ -160,8 +164,8 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 ### P1：跨工具调度与模型路由
 
 1. 设计版本化任务信封和上下文包，让 Codex CLI、skills、MCP 与网页共享同一资料/任务/结果 ID。
-2. 设计按角色、预算、隐私和质量选择模型的路由表；低成本模型优先处理整理、分类和草稿，强模型处理综合与冲突分析。
-3. 为每次生成调用记录 provider、model、角色、来源、耗时、成本估算和错误码，支持用户覆盖和人工复核。
+2. [x] 模型路由表已接入：按任务持久化路由规则（auto / 固定角色 / 低预算优先），复杂度启发式选择深度推理或快速任务，显式角色始终优先；隐私与质量维度的自动评估仍待完善。
+3. [x] `model_calls` 已记录 provider、model、角色、来源、耗时、成本估算和错误码，用户可覆盖路由；自动人工复核流程仍待设计。
 4. 保持对话执行器可替换，避免把长期知识绑定到某个聊天窗口或供应商。
 
 ### P1：科学学习与反讨好工作流
@@ -175,6 +179,7 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 1. [x] Zotero 只读同步已接入（手动 + 服务运行期间每 6 小时自动），保留条目 ID、集合、作者和附件路径信息。
 2. [x] PaperQA2 已接入：本地索引 + 带引用论文问答（`/api/paperqa/index`、`/api/paperqa/ask`），复用模型角色与凭据存储。
 3. [x] 研究证据表与可复现检索式导出已接入（科研项目 Markdown 导出 + 页面下载）；PDF 全文解析与扫描件 OCR 仍待接入。
+4. [x] Zotero 附件导入资料库已接入（受限白名单 + 共用索引管道 + 审计）；附件按文献集合自动归档仍待设计。
 
 ### P2：受控电脑自动化
 
@@ -218,6 +223,8 @@ git status --short
 - `/api/models/test` 不泄露密钥，并正确区分端点错误、鉴权、限流、超时和上游错误。
 - 统一 AI 对话未配置角色返回 409 并记录 `model_calls` 与审计；回答携带 `evidence` 和 `learning_state`，密钥不进入数据库。
 - 科研项目导出接口返回包含检索式、证据表、筛选与日志的 Markdown，导出写入审计；统一 AI 对话提示词包含证据分级与【需验证】要求。
+- 模型路由规则可持久化并写入审计；`auto` 按复杂度选择角色，显式角色优先，低预算剩余不足 25% 时自动改用快速任务。
+- 复习队列按“到期 → 新学 → 补前置”排序并携带提示；Zotero 附件导入只处理数据目录内的快照附件，复用与导入计数正确。
 - OpenAI 兼容端点支持多轮上下文与流式 SSE，未配置角色返回 409；`model_calls` 记录 `openai_compat_chat` / `nextchat`，测试确认密钥不进入响应、SQLite 或审计。
 - 用量接口返回成本与 Token 统计，预算超限时生成入口返回 429 并审计；资料自动扫描可新增、复用和更新文件。
 - Agent 重复交接返回 409，跨站或缺动作头返回 403，工具缺失返回 503 且任务保持 `queued`。

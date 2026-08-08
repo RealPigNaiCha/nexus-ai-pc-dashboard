@@ -147,3 +147,65 @@ def test_migration_adds_learning_evidence_columns(tmp_path: Path) -> None:
         response = client.post("/api/learning/attempts", json={"concept_id": concept["id"], "score": 0.8})
         assert response.status_code == 201
         assert response.json()["concept"]["attempt_count"] == 1
+
+
+def test_learning_review_queue_orders_due_new_and_foundation(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        empty = client.get("/api/learning/review/queue")
+        assert empty.status_code == 200
+        assert empty.json()["items"] == []
+
+        course = client.post(
+            "/api/learning/courses",
+            json={"title": "复习队列课程", "goal": "测试队列排序"},
+        ).json()
+        foundation = client.post(
+            "/api/learning/concepts",
+            json={"course_id": course["id"], "name": "基础概念", "description": "薄弱前置"},
+        ).json()
+        due_concept = client.post(
+            "/api/learning/concepts",
+            json={
+                "course_id": course["id"],
+                "name": "到期概念",
+                "description": "需要复习",
+                "prerequisite_ids": [foundation["id"]],
+            },
+        ).json()
+        new_concept = client.post(
+            "/api/learning/concepts",
+            json={"course_id": course["id"], "name": "新概念", "description": "尚未学习"},
+        ).json()
+
+        # Give the foundation a weak mastery so it counts as a weak prerequisite.
+        client.post(
+            "/api/learning/attempts",
+            json={"concept_id": foundation["id"], "score": 0.2},
+        )
+        # Make the dependent concept due by moving its due date into the past.
+        database = client.app.state.database
+        database.execute(
+            "UPDATE learning_concepts SET due_at = '2020-01-01T00:00:00+00:00', "
+            "status = 'review' WHERE id = ?",
+            (due_concept["id"],),
+        )
+
+        queue = client.get("/api/learning/review/queue").json()
+        kinds = [item["kind"] for item in queue["items"]]
+        names = [item["name"] for item in queue["items"]]
+        assert kinds == ["review", "new", "foundation"]
+        assert names == ["到期概念", "新概念", "基础概念"]
+        assert queue["summary"] == {
+            "total": 3,
+            "due_count": 1,
+            "new_count": 1,
+            "foundation_count": 1,
+        }
+        assert all(item["prompt_hint"] for item in queue["items"])
+
+        scoped = client.get(
+            "/api/learning/review/queue",
+            params={"course_id": course["id"], "limit": 1},
+        ).json()
+        assert len(scoped["items"]) == 1
+        assert scoped["items"][0]["name"] == "到期概念"

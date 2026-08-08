@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 
+import fitz
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
@@ -134,6 +135,70 @@ def test_zotero_sync_replaces_previous_snapshot(tmp_path: Path) -> None:
     assert first_count == 1
     assert second["key"] == "BBBB2222"
     assert second["title"] is None
+
+
+def test_zotero_attachment_import_indexes_and_reuses(tmp_path: Path) -> None:
+    zotero_path = tmp_path / "zotero" / "zotero.sqlite"
+    create_zotero_database(zotero_path)
+    attachment_path = tmp_path / "zotero" / "storage" / "ATTACH1" / "limits.pdf"
+    attachment_path.parent.mkdir(parents=True, exist_ok=True)
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Zotero attachment about limits and continuity")
+    document.save(attachment_path)
+    document.close()
+
+    with make_client(tmp_path, zotero_path) as client:
+        synced = client.post("/api/zotero/sync")
+        assert synced.status_code == 201
+
+        imported = client.post("/api/zotero/import-attachments")
+        assert imported.status_code == 201
+        payload = imported.json()
+        assert payload["attachment_files_seen"] == 1
+        assert payload["imported_count"] == 1
+        assert payload["failed_count"] == 0
+        assert payload["documents"][0]["source_path"] == str(attachment_path)
+        assert payload["documents"][0]["document_type"] == "PDF"
+
+        documents = client.app.state.database.query_all("SELECT * FROM documents")
+        assert len(documents) == 1
+
+        again = client.post("/api/zotero/import-attachments")
+        assert again.status_code == 201
+        assert again.json()["reused_count"] == 1
+
+        audit = client.app.state.database.query_all(
+            "SELECT * FROM audit_events WHERE category = 'zotero' AND action = 'import_attachments'"
+        )
+        assert len(audit) == 2
+
+
+def test_zotero_attachment_outside_data_root_is_ignored(tmp_path: Path) -> None:
+    zotero_path = tmp_path / "zotero" / "zotero.sqlite"
+    create_zotero_database(zotero_path)
+    outside = tmp_path / "outside.pdf"
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), "Outside attachment must not be imported")
+    document.save(outside)
+    document.close()
+    connection = sqlite3.connect(zotero_path)
+    connection.execute(
+        "UPDATE itemAttachments SET path = ? WHERE itemID = 2",
+        (str(outside),),
+    )
+    connection.commit()
+    connection.close()
+
+    with make_client(tmp_path, zotero_path) as client:
+        synced = client.post("/api/zotero/sync")
+        assert synced.status_code == 201
+        response = client.post("/api/zotero/import-attachments")
+        assert response.status_code == 422
+        assert client.app.state.database.query_one(
+            "SELECT COUNT(*) AS count FROM documents"
+        )["count"] == 0
 
 
 def test_zotero_missing_database_is_sanitized_and_audited(tmp_path: Path) -> None:

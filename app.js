@@ -57,6 +57,9 @@
   let chatSessionId = "";
   let chatWelcomeHtml = "";
   let usageData = null;
+  let reviewQueue = [];
+  let reviewQueueIndex = -1;
+  let routingRules = [];
 
   async function apiFetch(path, options = {}) {
     if (window.location.protocol === "file:") return null;
@@ -161,6 +164,7 @@
       await loadResearchProjects({ quiet: true });
       await refreshCredentialStatus();
       await loadModelRoles({ quiet: true });
+      await loadRoutingRules({ quiet: true });
       await loadChatSetup({ quiet: true });
       await loadUsage({ quiet: true });
       await loadPaperQAStatus({ quiet: true });
@@ -310,6 +314,10 @@
       const prefix = showCourse && concept.course_title ? `${concept.course_title} · ` : "";
       return `<option value="${Number(concept.id)}">${escapeHtml(prefix + concept.name)}</option>`;
     }).join("");
+    if (reviewQueueIndex >= 0 && reviewQueue[reviewQueueIndex]) {
+      select.value = String(reviewQueue[reviewQueueIndex].id);
+      return;
+    }
     const validPrevious = concepts.some((concept) => String(concept.id) === previous);
     const recommended = dueReviews[0]?.id || nextConcept?.id || concepts[0]?.id || "";
     select.value = validPrevious ? previous : String(recommended);
@@ -667,6 +675,7 @@
       const payload = await apiFetch(`/learning/dashboard${query}`);
       if (requestSerial !== learningRequestSerial) return false;
       renderLearningDashboard(payload || {});
+      loadReviewQueue({ quiet: true });
       return true;
     } catch (error) {
       if (requestSerial !== learningRequestSerial) return false;
@@ -675,6 +684,66 @@
       if (!quiet) toast(`无法读取学习进度：${message}`, "circle-alert");
       return false;
     }
+  }
+
+  async function loadReviewQueue({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return [];
+    try {
+      const query = learningCourseId ? `?course_id=${encodeURIComponent(learningCourseId)}` : "";
+      const payload = await apiFetch(`/learning/review/queue${query}`);
+      const fresh = Array.isArray(payload?.items) ? payload.items : [];
+      if (reviewQueueIndex >= 0) return reviewQueue;
+      reviewQueue = fresh;
+      const button = qs("#start-review");
+      if (button) button.disabled = reviewQueue.length === 0;
+      return reviewQueue;
+    } catch (error) {
+      if (!quiet) toast(`复习队列读取失败：${error.message}`, "circle-alert");
+      return [];
+    }
+  }
+
+  function renderReviewSessionBar() {
+    const bar = qs("#review-session-bar");
+    const progress = qs("#review-session-progress");
+    if (!bar || !progress) return;
+    if (reviewQueueIndex >= 0 && reviewQueue[reviewQueueIndex]) {
+      const item = reviewQueue[reviewQueueIndex];
+      const kindLabel = { review: "到期复习", new: "新知识点", foundation: "补前置" }[item.kind] || "复习";
+      progress.textContent = `复习队列：第 ${reviewQueueIndex + 1} / ${reviewQueue.length} 项 · ${item.name}（${kindLabel}）`;
+      bar.hidden = false;
+    } else {
+      bar.hidden = true;
+    }
+  }
+
+  function applyReviewQueueItem() {
+    const item = reviewQueue[reviewQueueIndex];
+    if (!item) return;
+    const select = qs("#learning-attempt-concept");
+    if (select) select.value = String(item.id);
+    const prompt = qs("#learning-attempt-prompt");
+    if (prompt) prompt.value = item.prompt_hint || "";
+    renderReviewSessionBar();
+    qs("#learning-attempt-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function exitReviewSession() {
+    reviewQueue = [];
+    reviewQueueIndex = -1;
+    renderReviewSessionBar();
+  }
+
+  async function startReviewSession() {
+    if (!(await ensureBackendConnection())) return;
+    const queue = await loadReviewQueue();
+    if (!queue.length) {
+      toast("当前没有到期复习、新知识点或薄弱前置", "calendar-check-2");
+      return;
+    }
+    reviewQueueIndex = 0;
+    applyReviewQueueItem();
+    toast(`开始复习：共 ${queue.length} 项，第一项“${queue[0].name}”`, "calendar-check-2");
   }
 
   async function createLearningCourse(event) {
@@ -768,7 +837,20 @@
       await loadLearningDashboard({ quiet: true });
       await loadCoachReport({ quiet: true });
       await loadCoachPlan({ quiet: true });
-      toast(`答题已保存：${learningRatingLabel(result.rating)}，下次 ${formatLearningDateTime(result.due_at)}`, "calendar-check-2");
+      const savedMessage = `答题已保存：${learningRatingLabel(result.rating)}，下次 ${formatLearningDateTime(result.due_at)}`;
+      if (reviewQueueIndex >= 0) {
+        reviewQueueIndex += 1;
+        if (reviewQueueIndex < reviewQueue.length) {
+          applyReviewQueueItem();
+          toast(`${savedMessage}；下一项：${reviewQueue[reviewQueueIndex].name}`, "arrow-right-circle");
+        } else {
+          const completed = reviewQueue.length;
+          exitReviewSession();
+          toast(`${savedMessage}；本轮复习完成（${completed} 项）`, "calendar-check-2");
+        }
+      } else {
+        toast(savedMessage, "calendar-check-2");
+      }
     } catch (error) {
       toast(`答题记录未保存：${learningErrorMessage(error)}`, "circle-alert");
     } finally {
@@ -959,6 +1041,68 @@
       }
     } catch (error) {
       if (!quiet) toast(`模型角色读取失败：${modelConnectionErrorMessage(error)}`, "circle-alert");
+    }
+  }
+
+  async function loadRoutingRules({ quiet = false } = {}) {
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    const container = qs("#routing-rules-list");
+    if (!container) return;
+    try {
+      const payload = await apiFetch("/routing/rules");
+      routingRules = Array.isArray(payload?.rules) ? payload.rules : [];
+      renderRoutingRules();
+    } catch (error) {
+      container.innerHTML = `<div class="routing-empty"><i data-lucide="circle-alert" aria-hidden="true"></i><span>路由规则读取失败：${escapeHtml(error.message)}</span></div>`;
+      refreshIcons();
+      if (!quiet) toast(`路由规则读取失败：${error.message}`, "circle-alert");
+    }
+  }
+
+  function renderRoutingRules() {
+    const container = qs("#routing-rules-list");
+    if (!container) return;
+    if (!routingRules.length) {
+      container.innerHTML = '<div class="routing-empty"><i data-lucide="list-x" aria-hidden="true"></i><span>暂无路由规则</span></div>';
+      refreshIcons();
+      return;
+    }
+    container.innerHTML = routingRules.map((rule) => `
+      <div class="model-role-row" data-rule="${escapeHtml(rule.task)}">
+        <div class="model-role-heading"><strong>${escapeHtml(rule.label)}</strong><span class="status-label is-neutral">${escapeHtml(rule.task)}</span></div>
+        <div class="settings-fields routing-fields">
+          <label><span>路由模式</span><select class="routing-mode">
+            <option value="auto"${rule.mode === "auto" ? " selected" : ""}>自动（按复杂度）</option>
+            <option value="reasoning"${rule.mode === "reasoning" ? " selected" : ""}>固定深度推理</option>
+            <option value="fast"${rule.mode === "fast" ? " selected" : ""}>固定快速任务</option>
+          </select></label>
+          <label class="check-control"><input class="routing-low-cost" type="checkbox"${rule.prefer_low_cost ? " checked" : ""}><span>低预算优先（接近预算上限时自动用快速任务）</span></label>
+          <div class="field-action wide-field"><button class="secondary-button routing-save" type="button" data-rule="${escapeHtml(rule.task)}"><i data-lucide="save" aria-hidden="true"></i><span>保存规则</span></button><span class="routing-message" aria-live="polite"></span></div>
+        </div>
+      </div>`).join("");
+    refreshIcons();
+  }
+
+  async function saveRoutingRule(button) {
+    const rule = button.dataset.rule;
+    const row = button.closest(`[data-rule="${rule}"]`);
+    if (!row) return;
+    const mode = qs(".routing-mode", row)?.value || "auto";
+    const preferLowCost = qs(".routing-low-cost", row)?.checked || false;
+    const message = qs(".routing-message", row);
+    button.disabled = true;
+    try {
+      await apiFetch(`/routing/rules/${encodeURIComponent(rule)}`, {
+        method: "PUT",
+        body: JSON.stringify({ mode, prefer_low_cost: preferLowCost })
+      });
+      if (message) message.textContent = "已保存";
+      toast(`路由规则已更新：${rule}`, "route");
+    } catch (error) {
+      if (message) message.textContent = `保存失败：${error.message}`;
+      toast(`路由规则保存失败：${error.message}`, "circle-alert");
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -1639,6 +1783,28 @@
       await loadZoteroStatus({ quiet: true });
     } finally {
       button.disabled = false;
+    }
+  }
+
+  async function importZoteroAttachments(event) {
+    const button = event.currentTarget;
+    const message = qs("#zotero-import-message");
+    if (!backendConnected && !(await ensureBackendConnection())) return;
+    if (button) button.disabled = true;
+    if (message) message.textContent = "正在导入并索引附件……";
+    try {
+      const result = await apiFetch("/zotero/import-attachments", { method: "POST" });
+      if (message) {
+        message.textContent = `新增 ${result.imported_count} 个、复用 ${result.reused_count} 个、失败 ${result.failed_count} 个；片段 ${result.chunks_indexed} 个`;
+      }
+      toast(`Zotero 附件已导入资料库：新增 ${result.imported_count} 个`, "library");
+      await loadLibraryDocuments({ quiet: true });
+      await loadSemanticStatus();
+    } catch (error) {
+      if (message) message.textContent = `导入失败：${error.message}`;
+      toast(`Zotero 附件导入失败：${error.message}`, "circle-alert");
+    } finally {
+      if (button) button.disabled = false;
     }
   }
 
@@ -3103,7 +3269,9 @@
       })
     );
     qs("#chat-go-settings")?.addEventListener("click", () => showPage("settings"));
+    qs("#start-review")?.addEventListener("click", startReviewSession);
     qs("#start-session")?.addEventListener("click", () => focusLearningAttempt());
+    qs("#review-session-exit")?.addEventListener("click", exitReviewSession);
     qs("#refresh-learning")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
@@ -3271,9 +3439,15 @@
     qs("#save-provider")?.addEventListener("click", saveCredential);
     qs("#test-provider")?.addEventListener("click", testModelConnection);
     qs("#sync-zotero")?.addEventListener("click", syncZotero);
+    qs("#import-zotero-attachments")?.addEventListener("click", importZoteroAttachments);
     qs("#run-backup")?.addEventListener("click", runBackup);
     qs("#save-backup-settings")?.addEventListener("click", saveBackupSettings);
     qs("#run-deeptutor")?.addEventListener("click", runDeepTutor);
+    qs("#refresh-routing")?.addEventListener("click", () => loadRoutingRules());
+    qs("#routing-rules-list")?.addEventListener("click", (event) => {
+      const button = event.target.closest(".routing-save");
+      if (button) saveRoutingRule(button);
+    });
     qs("#refresh-model-roles")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;

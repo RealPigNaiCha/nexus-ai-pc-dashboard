@@ -195,6 +195,7 @@
                 <label class="chat-control">
                   <span>模型</span>
                   <select id="chat-role">
+                    <option value="auto">自动（按复杂度）</option>
                     <option value="reasoning">深度推理</option>
                     <option value="fast">快速任务</option>
                   </select>
@@ -227,7 +228,7 @@
         <section class="page" id="page-learning" data-title="学习" data-eyebrow="个人进度">
           <div class="page-intro">
             <div><p class="section-kicker">学习规划</p><h2>基于答题证据的学习路径</h2><p class="supporting-text" id="learning-page-description">创建课程和知识点后，系统会根据每次答题记录更新掌握度与复习时间。</p></div>
-            <div class="button-row"><span class="status-label is-neutral" id="learning-progress-source">等待本地记录</span><button class="secondary-button" id="refresh-learning" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新进度</span></button><button class="primary-button" id="start-session" type="button"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>记录答题</span></button></div>
+            <div class="button-row"><span class="status-label is-neutral" id="learning-progress-source">等待本地记录</span><button class="secondary-button" id="refresh-learning" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新进度</span></button><button class="primary-button" id="start-review" type="button" disabled><i data-lucide="calendar-check-2" aria-hidden="true"></i><span>开始复习</span></button><button class="secondary-button" id="start-session" type="button"><i data-lucide="clipboard-pen-line" aria-hidden="true"></i><span>记录答题</span></button></div>
           </div>
 
           <div class="learning-summary">
@@ -288,7 +289,7 @@
             <div class="panel-heading"><div><p class="section-kicker">DeepTutor</p><h2 id="deeptutor-title">教学与研究问答</h2><p class="supporting-text">外部可替换教学能力；先配置模型角色和密钥，调用会写入审计与模型调用记录，密钥不会持久化到 DeepTutor 配置。</p></div><span class="status-label is-neutral" id="deeptutor-state">读取中</span></div>
             <div class="settings-fields deeptutor-fields">
               <label><span>能力</span><select id="deeptutor-capability"><option value="chat">自由对话</option><option value="deep_solve">深度解题</option><option value="deep_question">生成题目</option><option value="deep_research">深度研究</option></select></label>
-              <label><span>模型角色</span><select id="deeptutor-role"><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
+              <label><span>模型角色</span><select id="deeptutor-role"><option value="auto">自动（按复杂度）</option><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
               <label class="wide-field"><span>提示词</span><textarea id="deeptutor-prompt" rows="3" maxlength="4000" placeholder="例如：请用苏格拉底式提问帮我理解数列极限"></textarea></label>
               <div class="field-action wide-field"><button class="primary-button" id="run-deeptutor" type="button"><i data-lucide="sparkles" aria-hidden="true"></i><span>运行 DeepTutor</span></button><span id="deeptutor-message" aria-live="polite">等待配置模型角色</span></div>
             </div>
@@ -297,6 +298,7 @@
 
           <section class="panel question-panel" aria-labelledby="attempt-title" id="learning-attempt-panel">
             <div class="panel-heading"><div><p class="section-kicker">答题证据</p><h2 id="attempt-title">记录一次练习或复习</h2></div><span class="status-label is-neutral" id="learning-attempt-state">保存到本地数据库</span></div>
+            <div class="review-session-bar" id="review-session-bar" hidden><span id="review-session-progress">复习队列：—</span><button class="text-button" id="review-session-exit" type="button">退出复习</button></div>
             <form class="learning-attempt-form" id="learning-attempt-form">
               <label><span>知识点</span><select id="learning-attempt-concept" required><option value="">请选择知识点</option></select></label>
               <label class="attempt-prompt-field"><span>题目或提示（可选）</span><textarea id="learning-attempt-prompt" rows="2" maxlength="2000" placeholder="记录本次练习的题目，便于以后回顾。"></textarea></label>
@@ -424,7 +426,7 @@
                 <p class="paperqa-hint">索引保存在 <code id="paperqa-index-path-label">…</code>，仅读取资料库与 Vault 内的文件。</p>
                 <form class="paperqa-ask-form" id="paperqa-ask-form">
                   <label class="paperqa-field"><span>2 · 输入问题</span><input id="paperqa-question" type="text" required maxlength="2000" placeholder="例如：这篇论文提出的方法在哪些场景下有效？" autocomplete="off"></label>
-                  <label class="paperqa-field"><span>模型角色</span><select id="paperqa-role"><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
+                  <label class="paperqa-field"><span>模型角色</span><select id="paperqa-role"><option value="auto">自动（按复杂度）</option><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
                   <button class="primary-button" type="submit"><i data-lucide="sparkles" aria-hidden="true"></i><span>提问</span></button>
                 </form>
                 <p class="research-search-feedback" id="paperqa-feedback" role="status" aria-live="polite">建立索引后可对论文提问。</p>
@@ -613,10 +615,17 @@
                 <div class="model-role-heading"><strong>生成测试</strong><p class="supporting-text">只做最小的一次文本生成，用于验证角色路由和凭据。</p></div>
                 <div class="settings-fields">
                   <label class="wide-field"><span>提示词</span><textarea id="generate-prompt" maxlength="20000" rows="3" placeholder="例如：用一句话解释数列极限。"></textarea></label>
-                  <label><span>角色</span><select id="generate-role"><option value="reasoning">深度推理</option><option value="fast">快速任务</option><option value="vision">视觉理解</option></select></label>
+                  <label><span>角色</span><select id="generate-role"><option value="auto">自动（按复杂度）</option><option value="reasoning">深度推理</option><option value="fast">快速任务</option><option value="vision">视觉理解</option></select></label>
                   <div class="field-action"><button class="secondary-button" id="generate-test" type="button"><i data-lucide="sparkles" aria-hidden="true"></i><span>生成</span></button></div>
                 </div>
                 <div class="generate-output" id="generate-output" hidden></div>
+              </div>
+            </section>
+
+            <section class="settings-section" aria-labelledby="routing-title">
+              <div class="settings-heading"><div><h2 id="routing-title">模型路由（auto）</h2><p>把角色设为“自动”后，系统按问题复杂度选择深度推理或快速任务；显式指定角色时始终优先。勾选“低预算优先”可在月度预算接近用尽时自动改用快速任务。</p></div><button class="secondary-button" id="refresh-routing" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新路由</span></button></div>
+              <div class="routing-rules-list" id="routing-rules-list">
+                <div class="routing-empty"><i data-lucide="loader-circle" aria-hidden="true"></i><span>读取路由规则中……</span></div>
               </div>
             </section>
 
@@ -635,6 +644,7 @@
             <section class="settings-section" aria-labelledby="zotero-title">
               <div class="settings-heading"><div><h2 id="zotero-title">Zotero 文献库</h2><p>只读同步条目、集合和附件路径；不复制文献文件，也不读取任何凭据。</p></div><button class="secondary-button" id="sync-zotero" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>同步 Zotero</span></button></div>
               <div class="zotero-status" id="zotero-status"><span class="status-label is-neutral">读取中</span><small>正在检测 Zotero 数据目录</small></div>
+              <div class="field-action"><button class="secondary-button" id="import-zotero-attachments" type="button"><i data-lucide="file-input" aria-hidden="true"></i><span>导入附件到资料库</span></button><span id="zotero-import-message" aria-live="polite"></span></div>
             </section>
 
             <section class="settings-section" aria-labelledby="ops-title">

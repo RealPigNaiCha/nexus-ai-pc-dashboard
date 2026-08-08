@@ -970,6 +970,22 @@ class Database:
             "item_count": item_count,
         }
 
+    def list_zotero_attachment_paths(self) -> list[str]:
+        """Return deduplicated attachment paths recorded by Zotero syncs."""
+        rows = self.query_all("SELECT attachment_paths_json FROM zotero_items")
+        paths: list[str] = []
+        seen: set[str] = set()
+        for row in rows:
+            try:
+                values = json.loads(row["attachment_paths_json"] or "[]")
+            except (TypeError, ValueError):
+                continue
+            for value in values:
+                if isinstance(value, str) and value.strip() and value not in seen:
+                    seen.add(value)
+                    paths.append(value.strip())
+        return paths
+
     def get_model_roles(self) -> list[dict[str, str]]:
         rows = self.query_all(
             "SELECT key, value FROM settings WHERE key LIKE 'model_role.%' ORDER BY key"

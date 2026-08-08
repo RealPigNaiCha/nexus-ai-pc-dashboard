@@ -646,6 +646,10 @@ select { padding-right: 26px; }
 .model-role-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .model-role-heading strong { font-size: 12px; font-weight: 500; }
 .model-role-row .settings-fields { margin-top: 10px; }
+.routing-empty { display: flex; align-items: center; gap: 8px; padding: 12px 0; color: var(--muted); font-size: 13px; }
+.routing-fields { grid-template-columns: 1fr 1fr; }
+.review-session-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid var(--primary); border-radius: 10px; background: var(--surface-strong); font-size: 13px; }
+.review-session-bar span { color: var(--text); }
 .generate-test { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
 .generate-test textarea { width: 100%; min-height: 74px; padding: 12px; border: 1px solid var(--border-strong); border-radius: var(--radius-control); background: var(--canvas-soft); color: var(--text); resize: vertical; }
 .generate-output { margin-top: 12px; padding: 14px; border: 1px solid var(--border); border-left: 3px solid var(--clay); border-radius: var(--radius-control); background: var(--card-cream); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
