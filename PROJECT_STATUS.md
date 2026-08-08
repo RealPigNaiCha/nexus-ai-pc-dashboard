@@ -63,7 +63,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - 受控浏览器自动化：Playwright（Chromium Headless Shell）已安装；动作走“域名白名单 → 风险分级 → 逐步审批 → 审计 → 紧急停止”，未批准的 `open/click/type/close` 不会执行。
 - DeepTutor 安全适配器：`GET /api/deeptutor/status` 检测运行环境与模型角色；`POST /api/deeptutor/run` 支持 `chat` / `deep_solve` / `deep_question` / `deep_research`，复用 `reasoning` / `fast` 角色和 Windows Credential Manager；密钥只在单次 CLI 调用期间写入独立工作区的 `model_catalog.json`，结束后立即还原无密钥基线；调用指标写入 `model_calls`，动作写入审计。
 - 统一 AI 对话：`POST /api/chat/ask` 先检索资料库（自然语言长句自动回退中文关键词）并汇总学习进度，再按 `reasoning` / `fast` 角色调用模型生成带 `[n]` 引用的回答；返回 `answer`、`evidence`、`learning_state`、`semantic_degraded` 与 token 统计，调用写入 `model_calls` 和审计，不持久化提示词或密钥。
-- 多轮对话前端：NextChat（MIT）运行在 `127.0.0.1:3000`，通过 `POST /v1/chat/completions`（OpenAI 兼容、支持流式）访问同一本地知识底座；`GET /v1/models` 返回可用角色，调用写入 `model_calls`（operation=`openai_compat_chat`）与审计。
+- 多轮对话：已合并进“AI 对话”页，同一气泡与来源/学习进度风格；会话历史走 `POST /v1/chat/completions`（OpenAI 兼容、支持 `scope`），按会话写入 `model_calls`（operation=`openai_compat_chat`）。可选的 NextChat 独立服务仍保留在 `127.0.0.1:3000`。
 - 用量小计与月度预算：`/api/usage` 汇总本月成功调用、Token、估算成本与 NextChat 会话小计；`PUT /api/usage/budget` 设置月度上限，超出后生成类接口返回 429。
 - 资料目录自动监听：服务运行期间默认每 5 分钟扫描资料目录与 Vault，自动增量导入并更新词法/语义索引；`/api/library/auto/*` 提供状态、设置与立即扫描。
 - 复习提醒角标：侧边栏“学习”入口按待复习数量显示角标。
@@ -82,7 +82,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 
 2026-08-06 晚部署 PaperQA2 后：工作区与正式目录测试均为 114 passed；正式环境已用 `C:\AI-PC\data\library\paperqa-demo`（2 篇 Markdown 示例）建立论文索引（约 77 秒，含首次模型加载），`/api/paperqa/status` 返回 `index.built=true`、`document_count=2`；在未配置模型角色时提问返回 409，`model_calls` 记录 `paperqa_ask/error/role_not_configured`，审计事件正常。示例文件可在“资料库”中删除，不影响代码。
 
-2026-08-08 已接入 NextChat 多轮对话、用量小计与月度预算、资料目录自动监听和复习提醒角标；工作区完整测试为 `143 passed`。
+2026-08-08 已接入多轮对话（并入 AI 对话页）、用量小计与月度预算、资料目录自动监听和复习提醒角标；工作区完整测试为 `144 passed`。
 
 ## 4. 已安装但尚未完全接入
 
@@ -137,12 +137,12 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 1. [x] “AI 对话”页已接入：先检索资料库与学习进度，再按角色生成带引用回答；语义不可用时自动回退中文关键词检索。
 2. [x] 回答附带可展开的“来源”（路径、页码/段落、片段）和“学习进度”核对区；模型角色未配置时返回 409 并写入审计。
 
-### P1：多轮对话前端（NextChat）
+### P1：多轮对话（已并入 AI 对话页）
 
-1. [x] 选用 MIT 开源的 NextChat 作为多轮对话 UI，聊天记录保存在浏览器本地，不新增数据库或用户体系。
-2. [x] 后端新增 OpenAI 兼容端点 `POST /v1/chat/completions` 与 `GET /v1/models`：支持多轮 `messages[]`、流式 SSE、角色映射（`reasoning` / `fast`）、本地资料检索与引用；密钥仍只在调用瞬间从 Windows Credential Manager 读取。
+1. [x] “AI 对话”页支持多轮会话：新建对话、完整历史携带、来源核对与学习进度展示，界面与 Dashboard 其余页面一致。
+2. [x] 后端 OpenAI 兼容端点 `POST /v1/chat/completions` 与 `GET /v1/models` 支持 `scope` / `course_id`、角色映射（`reasoning` / `fast`）、本地资料检索与引用；密钥仍只在调用瞬间从 Windows Credential Manager 读取。
 3. [x] 每次兼容调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`），不持久化提示词、回答或密钥。
-4. [x] 提供 `start-nextchat.ps1` / `stop-nextchat.ps1`，也可用 `start.ps1 -WithChat` 一次启动 Dashboard 与 NextChat。
+4. [x] 保留可选 NextChat（MIT）独立服务与 `start-nextchat.ps1` / `stop-nextchat.ps1`，但不再作为 Dashboard 独立导航入口。
 
 ### P1：用量与成本预算
 

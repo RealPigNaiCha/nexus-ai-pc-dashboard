@@ -206,3 +206,33 @@ def test_openai_compat_models_lists_configured_roles(tmp_path: Path) -> None:
         ids = [item["id"] for item in payload["data"]]
         assert "reasoning" in ids
         assert "deepseek-v4-flash" in ids
+
+
+def test_openai_compat_scope_learning_includes_learning_state(tmp_path: Path) -> None:
+    _, handler = openai_answer_handler()
+    backend = MemoryKeyring()
+    client = make_client(tmp_path, backend, handler)
+    with client:
+        configure_role(client)
+        course = client.post(
+            "/api/learning/courses",
+            json={"title": "高等数学", "goal": "掌握极限"},
+        ).json()
+        client.post(
+            "/api/learning/concepts",
+            json={"course_id": course["id"], "name": "数列极限", "description": "ε-N 定义"},
+        )
+
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "reasoning",
+                "scope": "learning",
+                "messages": [{"role": "user", "content": "我下一步该学什么？"}],
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["evidence"] == []
+        assert payload["learning_state"]["concept_count"] == 1

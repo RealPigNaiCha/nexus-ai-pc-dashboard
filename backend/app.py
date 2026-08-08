@@ -221,6 +221,8 @@ class OpenAIChatRequest(StrictModel):
     model: str = Field(default="reasoning", min_length=1, max_length=200)
     messages: list[OpenAIChatMessage] = Field(min_length=1, max_length=200)
     stream: bool = False
+    scope: Literal["all", "library", "learning"] = "all"
+    course_id: int | None = Field(default=None, gt=0)
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
     temperature: float | None = Field(default=None, ge=0, le=2)
 
@@ -1922,10 +1924,10 @@ def create_app(
         evidence, learning_state, semantic_degraded = chat_context(
             request,
             latest_user,
-            "all",
-            None,
+            payload.scope,
+            payload.course_id,
         )
-        system = chat_system_prompt(evidence, learning_state, "all")
+        system = chat_system_prompt(evidence, learning_state, payload.scope)
         if extra_system:
             system = f"{system}\n\n【用户附加要求】\n{extra_system}"
         if conversation:
@@ -2092,6 +2094,8 @@ def create_app(
                 "completion_tokens": result.completion_tokens,
                 "total_tokens": result.total_tokens,
             },
+            "evidence": evidence,
+            "learning_state": learning_state,
             "semantic_degraded": semantic_degraded,
         }
 

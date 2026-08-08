@@ -27,9 +27,6 @@
         <button class="nav-item" type="button" data-page="chat" title="AI 对话" aria-label="AI 对话">
           <i data-lucide="message-circle" aria-hidden="true"></i><span>AI 对话</span>
         </button>
-        <a class="nav-item" href="http://127.0.0.1:3000" target="_blank" rel="noopener" title="多轮对话" aria-label="多轮对话">
-          <i data-lucide="messages-square" aria-hidden="true"></i><span>多轮对话</span>
-        </a>
         <button class="nav-item" type="button" data-page="usage" title="用量" aria-label="用量">
           <i data-lucide="gauge" aria-hidden="true"></i><span>用量</span>
         </button>
@@ -176,6 +173,7 @@
               <h2>先检索本地资料，再回答你的问题</h2>
               <p class="supporting-text" id="chat-page-description">AI 会结合资料库和学习进度生成回答，并附上可核对的来源；点击示例即可快速开始。</p>
             </div>
+            <div class="button-row"><button class="secondary-button" id="chat-new" type="button"><i data-lucide="plus-square" aria-hidden="true"></i><span>新建对话</span></button></div>
           </div>
 
           <div class="chat-shell">
@@ -213,6 +211,7 @@
                   <i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>去设置模型</span>
                 </button>
                 <p class="chat-model-status" id="chat-model-status">正在检查模型配置…</p>
+                <span class="status-label is-neutral" id="chat-session-label">新对话</span>
               </div>
               <div class="chat-input-row">
                 <textarea id="chat-input" rows="2" maxlength="2000" placeholder="输入问题，例如：数列极限的 ε-N 定义是什么？"></textarea>

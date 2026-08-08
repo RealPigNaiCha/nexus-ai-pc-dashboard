@@ -53,6 +53,9 @@
   let chatRoles = [];
   let chatSending = false;
   let chatMessageId = 0;
+  let chatHistory = [];
+  let chatSessionId = "";
+  let chatWelcomeHtml = "";
   let usageData = null;
 
   async function apiFetch(path, options = {}) {
@@ -1182,6 +1185,58 @@
     refreshIcons();
   }
 
+  function stripChatFooter(text) {
+    const marker = text.indexOf("\n\n---\n**本地资料引用**");
+    if (marker >= 0) return text.slice(0, marker).trimEnd();
+    const looseMarker = text.lastIndexOf("\n\n---\n");
+    if (looseMarker >= 0) return text.slice(0, looseMarker).trimEnd();
+    return text;
+  }
+
+  function resetChatConversation() {
+    chatHistory = [];
+    chatSessionId = `dashboard-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const container = qs("#chat-messages");
+    if (container && chatWelcomeHtml) {
+      container.innerHTML = chatWelcomeHtml;
+      container.scrollTop = 0;
+    }
+    const label = qs("#chat-session-label");
+    if (label) {
+      label.textContent = "新对话";
+      label.className = "status-label is-neutral";
+    }
+    refreshIcons();
+  }
+
+  async function chatCompletionsFetch(payload) {
+    let response;
+    try {
+      response = await fetch("/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-AI-PC-Session": chatSessionId
+        },
+        body: JSON.stringify(payload)
+      });
+    } catch {
+      setServiceStatus(false);
+      throw new Error("无法连接本地服务");
+    }
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const data = await response.json();
+        detail = typeof data?.detail === "string" ? data.detail : (data?.error?.message || "");
+      } catch {
+        // Keep the HTTP status as the fallback detail.
+      }
+      throw new Error(detail || `API ${response.status}`);
+    }
+    return response.json();
+  }
+
   async function sendChatQuestion() {
     const input = qs("#chat-input");
     const question = input?.value.trim() || "";
@@ -1192,26 +1247,43 @@
     }
     const role = qs("#chat-role")?.value || "reasoning";
     const scope = qs("#chat-scope")?.value || "all";
+    const started = Date.now();
     appendChatMessage("user", question);
+    chatHistory.push({ role: "user", content: question });
     input.value = "";
     input.focus();
     const pendingId = appendChatMessage("assistant", "", { pending: true });
     chatSending = true;
     setChatSending(true);
     try {
-      const payload = await apiFetch("/chat/ask", {
-        method: "POST",
-        body: JSON.stringify({ question, role, scope })
+      const payload = await chatCompletionsFetch({
+        model: role,
+        scope,
+        stream: false,
+        messages: chatHistory
       });
+      const rawAnswer = payload?.choices?.[0]?.message?.content || "";
+      const answer = stripChatFooter(rawAnswer);
       updateChatMessage(pendingId, {
-        text: payload.answer || "",
+        text: answer,
         model: payload.model,
-        latency_ms: payload.latency_ms,
+        latency_ms: Date.now() - started,
         usage: payload.usage,
         evidence: payload.evidence,
         learning: payload.learning_state
       });
+      chatHistory.push({ role: "assistant", content: answer });
+      if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+      const userTurns = chatHistory.filter((item) => item.role === "user").length;
+      const label = qs("#chat-session-label");
+      if (label) {
+        label.textContent = `会话进行中 · ${userTurns} 轮`;
+        label.className = "status-label is-success";
+      }
     } catch (error) {
+      if (chatHistory.at(-1)?.role === "user" && chatHistory.at(-1)?.content === question) {
+        chatHistory.pop();
+      }
       updateChatMessage(pendingId, { error: chatErrorMessage(error) });
       const ready = chatRoles.some((item) => item.role === role && item.ready === true);
       if (!ready) {
@@ -2971,6 +3043,10 @@
     });
 
     qs("#continue-setup")?.addEventListener("click", () => showPage("settings"));
+    qs("#chat-new")?.addEventListener("click", () => {
+      resetChatConversation();
+      toast("已新建对话", "plus-square");
+    });
     qs("#chat-send")?.addEventListener("click", sendChatQuestion);
     qs("#chat-input")?.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -3217,6 +3293,8 @@
 
   function hydrate() {
     setTheme(state.theme);
+    chatWelcomeHtml = qs("#chat-welcome")?.outerHTML || "";
+    resetChatConversation();
     clearResearchProject();
     if (qs("#provider-select")) qs("#provider-select").value = state.provider;
     if (qs("#api-endpoint")) qs("#api-endpoint").value = state.endpoint;
