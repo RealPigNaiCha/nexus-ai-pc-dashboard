@@ -2492,6 +2492,7 @@
     if (qs("#research-note")) { qs("#research-note").value = ""; qs("#research-note").disabled = true; }
     if (qs("#save-note")) qs("#save-note").disabled = true;
     if (qs("#note-save-state")) qs("#note-save-state").textContent = "未选择项目";
+    if (qs("#research-export")) qs("#research-export").disabled = true;
     renderResearchPapers();
     setResearchTrace(null);
   }
@@ -2520,9 +2521,49 @@
     }
     if (qs("#research-note")) { qs("#research-note").disabled = false; qs("#research-note").value = researchNotes[0]?.body || ""; }
     if (qs("#save-note")) qs("#save-note").disabled = false;
+    if (qs("#research-export")) qs("#research-export").disabled = false;
     if (qs("#note-save-state")) qs("#note-save-state").textContent = researchNotes.length ? `已保存 ${formatLearningDateTime(researchNotes[0].created_at)}` : "未保存";
     renderResearchPapers();
     setResearchTrace(project);
+  }
+
+  async function downloadResearchExport() {
+    if (!researchProjectId) return;
+    const exportButton = qs("#research-export");
+    const originalText = exportButton?.querySelector("span")?.textContent || "导出证据表";
+    if (exportButton) {
+      exportButton.disabled = true;
+      const label = exportButton.querySelector("span");
+      if (label) label.textContent = "导出中…";
+    }
+    try {
+      const payload = await apiFetch(`/research/projects/${researchProjectId}/export`);
+      if (!payload?.markdown) throw new Error("导出内容为空");
+      const blob = new Blob([payload.markdown], { type: "text/markdown;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const projectName = String(payload.project?.name || `project-${researchProjectId}`)
+        .replace(/[\\/:*?"<>|]+/g, "-")
+        .slice(0, 60);
+      anchor.href = url;
+      anchor.download = `科研导出-${projectName}.md`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      const feedback = qs("#research-search-feedback");
+      if (feedback) {
+        feedback.textContent = `导出失败：${error.message}`;
+        feedback.dataset.state = "error";
+      }
+    } finally {
+      if (exportButton) {
+        exportButton.disabled = false;
+        const label = exportButton.querySelector("span");
+        if (label) label.textContent = originalText;
+      }
+    }
   }
 
   async function loadResearchProject(projectId) {
@@ -3154,6 +3195,7 @@
       qs("#page-research")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }));
     qs("#new-project")?.addEventListener("click", () => openDialog("#project-dialog"));
+    qs("#research-export")?.addEventListener("click", downloadResearchExport);
     qs("#research-project-select")?.addEventListener("change", (event) => event.currentTarget.value ? loadResearchProject(event.currentTarget.value) : clearResearchProject());
     qs("#research-search-form")?.addEventListener("submit", runResearchSearch);
     qs("#research-paper-body")?.addEventListener("change", (event) => {

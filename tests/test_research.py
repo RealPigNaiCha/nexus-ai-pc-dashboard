@@ -209,6 +209,59 @@ def test_screening_decision_is_project_scoped_and_updatable(tmp_path: Path) -> N
         assert missing.status_code == 404
 
 
+def test_research_project_export_contains_reproducible_evidence(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _crossref_payload() if request.url.host == "api.crossref.org" else _openalex_payload()
+        return httpx.Response(200, json=payload)
+
+    app = create_app(
+        tmp_path / "export.sqlite3",
+        serve_static=False,
+        research_transport=httpx.MockTransport(handler),
+    )
+    with TestClient(app) as client:
+        project_id = _create_project(client)
+        search = client.post(
+            f"/api/research/projects/{project_id}/searches",
+            json={"query": "retrieval practice", "limit": 5},
+        ).json()
+        paper_id = search["papers"][0]["id"]
+        screened = client.put(
+            f"/api/research/projects/{project_id}/papers/{paper_id}/screening",
+            json={"decision": "include", "reason": "Matches population and outcome."},
+        )
+        assert screened.status_code == 200
+        noted = client.post(
+            f"/api/research/projects/{project_id}/notes",
+            json={"body": "假设：检索练习能提高长期保持。"},
+        )
+        assert noted.status_code == 201
+
+        exported = client.get(f"/api/research/projects/{project_id}/export")
+        assert exported.status_code == 200
+        payload = exported.json()
+        markdown = payload["markdown"]
+        assert "# 科研项目导出：Evidence review" in markdown
+        assert "| 1 | `retrieval practice` | crossref + openalex |" in markdown
+        assert "https://doi.org/10.1000/shared" in markdown
+        assert "Retrieval practice and durable learning" in markdown
+        assert "纳入" in markdown
+        assert "Matches population and outcome." in markdown
+        assert "假设：检索练习能提高长期保持。" in markdown
+        assert "## 2. 证据表（全部候选文献）" in markdown
+        assert "## 4. 研究日志" in markdown
+        assert payload["generated_at"]
+
+        audit = client.app.state.database.query_all(
+            "SELECT * FROM audit_events WHERE category = 'research' AND action = 'export_project'"
+        )
+        assert len(audit) == 1
+        assert audit[0]["target"] == str(project_id)
+
+        missing = client.get("/api/research/projects/9999/export")
+        assert missing.status_code == 404
+
+
 def test_upstream_http_error_leaves_no_partial_search_data(tmp_path: Path) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "api.crossref.org":

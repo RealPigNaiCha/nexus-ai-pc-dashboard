@@ -4,8 +4,9 @@ import hashlib
 import html
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any, Iterable, Mapping, Sequence
 from urllib.parse import unquote
 
@@ -21,6 +22,13 @@ _DOI_PREFIX = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNOREC
 _DOI_PATTERN = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
 _HTML_TAG = re.compile(r"<[^>]+>")
 _WHITESPACE = re.compile(r"\s+")
+
+_DECISION_LABELS = {
+    "include": "纳入",
+    "maybe": "待定",
+    "exclude": "排除",
+    "pending": "待筛选",
+}
 
 
 class ResearchUpstreamError(RuntimeError):
@@ -415,3 +423,132 @@ def _integer(value: object, *, minimum: int | None = None, maximum: int | None =
     if maximum is not None and parsed > maximum:
         return None
     return parsed
+
+
+def _format_export_datetime(value: object) -> str:
+    if not value:
+        return "—"
+    text = str(value).replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return text
+
+
+def _md_cell(value: object) -> str:
+    return str(value or "").replace("|", "\\|").replace("\n", " ").strip()
+
+
+def _paper_link(paper: Mapping[str, Any]) -> str:
+    doi = paper.get("doi")
+    if doi:
+        return f"https://doi.org/{doi}"
+    return str(paper.get("url") or "—")
+
+
+def build_research_export_markdown(
+    project: Mapping[str, Any],
+    searches: Sequence[Mapping[str, Any]],
+    screening: Sequence[Mapping[str, Any]],
+    notes: Sequence[Mapping[str, Any]],
+    *,
+    generated_at: str | None = None,
+) -> str:
+    """Build a reproducible Markdown evidence export for a research project.
+
+    The output preserves the exact literature queries, providers, screening
+    decisions and research notes so a later reviewer can reproduce the search.
+    It contains only local metadata and never any API keys.
+    """
+    lines: list[str] = []
+    now = generated_at or datetime.now(timezone.utc).isoformat()
+    lines.append(f"# 科研项目导出：{_md_cell(project.get('name') or '未命名项目')}")
+    lines.append("")
+    lines.append(f"> 导出时间：{_format_export_datetime(now)}")
+    lines.append(f"> 研究问题：{_md_cell(project.get('question') or '—')}")
+    lines.append(
+        f"> 项目类型：{_md_cell(project.get('research_type') or '—')} · "
+        f"项目状态：{_md_cell(project.get('status') or '—')}"
+    )
+    lines.append("")
+
+    lines.append("## 1. 可复现检索式")
+    lines.append("")
+    if searches:
+        lines.append("| # | 检索式 | 数据来源 | 检索时间 | 结果数 |")
+        lines.append("|---|---|---|---|---|")
+        for index, detail in enumerate(searches, start=1):
+            search = detail.get("search") or {}
+            providers = " + ".join(str(p) for p in (search.get("providers") or [])) or "—"
+            lines.append(
+                f"| {index} | `{_md_cell(search.get('query'))}` | {providers} | "
+                f"{_format_export_datetime(search.get('created_at'))} | "
+                f"{int(search.get('result_count') or 0)} |"
+            )
+    else:
+        lines.append("尚未执行文献检索。")
+    lines.append("")
+
+    lines.append("## 2. 证据表（全部候选文献）")
+    lines.append("")
+    if searches:
+        seen_paper_ids: set[int] = set()
+        rows: list[tuple[Mapping[str, Any], int]] = []
+        for detail in searches:
+            search = detail.get("search") or {}
+            search_id = int(search.get("id") or 0)
+            for paper in detail.get("papers") or []:
+                paper_id = int(paper.get("id") or 0)
+                if paper_id in seen_paper_ids:
+                    continue
+                seen_paper_ids.add(paper_id)
+                rows.append((paper, search_id))
+
+        lines.append("| 排名 | 论文 | 年份 | 作者 | 来源 | 引用数 | DOI/URL | 筛选决定 | 筛选理由 | 检索批次 |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
+        for rank, (paper, search_id) in enumerate(rows, start=1):
+            authors = "、".join(str(author) for author in (paper.get("authors") or []))[:200]
+            providers = " + ".join(str(p) for p in (paper.get("providers") or [])) or "—"
+            year = paper.get("publication_year") or paper.get("year") or "—"
+            decision = _DECISION_LABELS.get(
+                str(paper.get("screening_decision") or ""), "待筛选"
+            )
+            reason = str(paper.get("screening_reason") or "")
+            lines.append(
+                f"| {rank} | {_md_cell(paper.get('title'))} | {_md_cell(year)} | "
+                f"{_md_cell(authors)} | {providers} | {int(paper.get('citation_count') or 0)} | "
+                f"{_md_cell(_paper_link(paper))} | {_md_cell(decision)} | {_md_cell(reason)} | "
+                f"#{search_id} |"
+            )
+    else:
+        lines.append("尚无候选文献。")
+    lines.append("")
+
+    lines.append("## 3. 筛选汇总")
+    lines.append("")
+    if screening:
+        counts = Counter(str(item.get("decision") or "pending") for item in screening)
+        for decision in ("include", "maybe", "exclude", "pending"):
+            lines.append(f"- {_DECISION_LABELS.get(decision, decision)}：{counts.get(decision, 0)}")
+    else:
+        lines.append("尚未记录筛选决定。")
+    lines.append("")
+
+    lines.append("## 4. 研究日志")
+    lines.append("")
+    if notes:
+        for index, note in enumerate(notes, start=1):
+            lines.append(f"### 4.{index} {_format_export_datetime(note.get('created_at'))}")
+            lines.append("")
+            lines.append(str(note.get("body") or "（空记录）"))
+            lines.append("")
+    else:
+        lines.append("尚未保存研究日志。")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("> 由 Nexus AI-PC Dashboard 生成，内容来自本地数据库，不包含 API 密钥。")
+    return "\n".join(lines).rstrip() + "\n"

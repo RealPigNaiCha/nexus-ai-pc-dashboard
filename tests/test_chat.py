@@ -116,6 +116,9 @@ def test_chat_ask_returns_answer_with_citable_library_evidence(
         system = next(item["content"] for item in messages if item["role"] == "system")
         assert "【本地资料】" in system
         assert "[1]《" in system
+        assert "【资料原文】" in system
+        assert "【需验证】" in system
+        assert "反例或边界条件" in system
 
         calls = client.app.state.database.query_all("SELECT * FROM model_calls")
         assert calls[-1]["operation"] == "chat"

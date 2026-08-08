@@ -1,6 +1,6 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一多轮 AI 对话（已并入“AI 对话”页，支持来源与学习进度）、用量小计与月度预算、资料目录自动监听、复习提醒角标、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、Crossref/OpenAlex 科研检索与筛选、科研笔记、可复现检索式与证据表导出、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一多轮 AI 对话（已并入“AI 对话”页，支持来源、学习进度与证据分级）、用量小计与月度预算、资料目录自动监听、复习提醒角标、Zotero 只读同步、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。自动复习调度和电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
 
@@ -60,7 +60,7 @@ Set-Location 'C:\AI-PC\app\dashboard'
 .\start.ps1
 ```
 
-`start.ps1` 会在后台启动服务、等待健康检查通过，然后打开浏览器。只启动服务、不打开浏览器：
+`start.ps1` 会在后台启动服务、等待健康检查通过，然后打开浏览器。首次冷启动需要加载本地向量模型，可能耗时数十秒；脚本最多等待 120 秒，端口被占用但健康检查未通过时会给出明确提示。只启动服务、不打开浏览器：
 
 ```powershell
 .\start.ps1 -NoBrowser
@@ -189,6 +189,7 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/semantic/rebuild' -Met
 - DOI 会规范化并跨来源去重；来源元数据、作者、摘要、引用数和 URL 会合并。
 - 只有两个来源都成功后才在单个 SQLite 事务中保存，网络或上游错误不会留下半份检索记录。
 - 公共元数据接口不需要用户 API 密钥；论文全文和 Zotero 自动导入尚未接入。
+- 科研页“可追溯性”面板可一键导出证据表：`GET /api/research/projects/{id}/export` 生成 Markdown，包含研究问题、可复现检索式与来源、证据表、筛选汇总和研究日志，导出动作写入审计，不包含任何密钥。
 
 ### 5.3 PaperQA2 论文问答
 
@@ -238,6 +239,7 @@ Invoke-RestMethod `
 - `POST /api/chat/ask`：请求体为 `{question, role, scope, course_id?}`；`role` 只允许 `reasoning` / `fast`，`scope` 为 `all`（资料 + 学习，默认）、`library`（仅资料库）或 `learning`（仅学习进度）。
 - 检索结果与学习状态只在调用瞬间拼入提示词；回答返回 `answer`、`evidence`、`learning_state`、`semantic_degraded`、模型信息与 token 统计。
 - 自然语言长句在词法检索无结果时，会按中文关键词自动回退检索；语义索引不可用时与现有检索一致地降级到 SQLite。
+- 提示词要求证据分级：区分【资料原文】【资料推断】【模型知识】【推测】；高影响结论标注【需验证】并建议第二来源或人工复核；用户观点有误时给出反例或边界条件，而不是迎合用户。
 - 模型角色未配置时返回 `409`，`model_calls` 记录 `chat/error/role_not_configured`，审计事件正常；回答、提示词和密钥都不会持久化。
 
 PowerShell 调用示例：
@@ -555,6 +557,7 @@ uv run pytest
 - `/api/research/projects`、`/api/research/projects/{id}/notes`
 - `/api/research/projects/{id}/searches`、`/api/research/searches/{id}`
 - `/api/research/projects/{id}/screening`、`/api/research/projects/{id}/papers/{paper_id}/screening`
+- `/api/research/projects/{id}/export`
 - `/api/paperqa/status`、`/api/paperqa/index`、`/api/paperqa/ask`
 - `/api/deeptutor/status`、`/api/deeptutor/run`
 - `/api/chat/ask`

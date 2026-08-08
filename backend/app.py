@@ -66,7 +66,11 @@ from .paperqa import (
     PaperQAError,
     PaperQAService,
 )
-from .research import LiteratureClient, ResearchUpstreamError
+from .research import (
+    LiteratureClient,
+    ResearchUpstreamError,
+    build_research_export_markdown,
+)
 from .semantic import (
     DEFAULT_COLLECTION_NAME,
     DEFAULT_MODEL_NAME,
@@ -1723,8 +1727,8 @@ def create_app(
             "你是 Nexus AI-PC 的本地知识助手，帮助用户学习和研究。",
             "回答要求：",
             "1. 优先使用下方【本地资料】中的证据；引用时在对应句子后标注 [1]、[2] 等编号，编号与资料列表一致。",
-            "2. 明确区分资料中的事实、你的推断、用户假设和待验证建议；没有证据时直接说明，不要编造来源。",
-            "3. 对不确定的内容说明剩余不确定性；如果用户观点有误，应给出反例或替代解释，而不是迎合用户。",
+            "2. 证据分级：明确区分【资料原文】【资料推断】【模型知识】【推测】；没有证据时直接说明，不要编造来源。",
+            "3. 对不确定的内容说明剩余不确定性；高影响结论标注【需验证】并建议第二来源或人工复核；如果用户观点有误，应给出反例或边界条件，而不是迎合用户。",
             "4. 回答默认使用中文，简洁、条理清楚，适合快速阅读。",
         ]
         if evidence:
@@ -2247,6 +2251,47 @@ def create_app(
             raise HTTPException(status_code=404, detail=str(error)) from error
         database.audit("research", "screen_paper", f"{project_id}:{paper_id}")
         return decision
+
+    @app.get("/api/research/projects/{project_id}/export")
+    def export_research_project(project_id: int, request: Request) -> dict[str, object]:
+        database = db(request)
+        project = database.query_one(
+            "SELECT * FROM research_projects WHERE id = ?", (project_id,)
+        )
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        searches = database.list_research_searches(project_id, 100)
+        search_details: list[dict[str, object]] = []
+        for search in searches:
+            detail = database.get_research_search(int(search["id"]))
+            if detail:
+                search_details.append(detail)
+        screening = database.list_screening_decisions(project_id)
+        notes = database.query_all(
+            """
+            SELECT * FROM research_notes
+            WHERE project_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (project_id,),
+        )
+        generated_at = utc_now()
+        markdown = build_research_export_markdown(
+            project,
+            search_details,
+            screening,
+            notes,
+            generated_at=generated_at,
+        )
+        database.audit("research", "export_project", str(project_id))
+        return {
+            "project": project,
+            "searches": search_details,
+            "screening": screening,
+            "notes": notes,
+            "markdown": markdown,
+            "generated_at": generated_at,
+        }
 
     @app.get("/api/agent/tasks")
     def list_agent_tasks(request: Request) -> list[dict]:

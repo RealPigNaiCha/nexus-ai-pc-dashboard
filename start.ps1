@@ -28,7 +28,7 @@ if (-not (Test-Dashboard)) {
     $stderrLog = Join-Path $logDir "dashboard.stderr.log"
     Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $runScript) -WorkingDirectory $projectRoot -WindowStyle Hidden -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog | Out-Null
 
-    $deadline = (Get-Date).AddSeconds(30)
+    $deadline = (Get-Date).AddSeconds(120)
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 500
         if (Test-Dashboard) {
@@ -38,7 +38,11 @@ if (-not (Test-Dashboard)) {
 }
 
 if (-not (Test-Dashboard)) {
-    throw "AI-PC Dashboard did not become healthy. Check C:\AI-PC\logs\dashboard.stderr.log"
+    $listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($listener) {
+        throw "端口 8765 已被进程 $($listener.OwningProcess) 占用，但健康检查未通过。请先停止旧服务或检查该进程，再重新启动。日志：C:\AI-PC\logs\dashboard.stderr.log"
+    }
+    throw "AI-PC Dashboard 未在 120 秒内通过健康检查。请查看日志：C:\AI-PC\logs\dashboard.stderr.log"
 }
 
 if (-not $NoBrowser) {

@@ -1,6 +1,6 @@
 # AI-PC 项目状态与续作清单
 
-更新时间：2026-08-07
+更新时间：2026-08-08
 
 本文是下一次任务的首要入口。先核对本文中的路径、服务状态和测试结果，再继续开发；不要重新搭建已经存在的数据底座。
 
@@ -49,6 +49,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - PDF、Markdown、TXT 导入；SQLite 关键词检索；BGE + Qdrant 语义和混合检索。
 - FSRS 学习进度、课程与知识点、答题记录和下一次复习时间。
 - Crossref/OpenAlex 科研检索、DOI 去重、论文筛选与研究笔记。
+- 科研证据表与可复现检索式导出：`GET /api/research/projects/{id}/export` 生成 Markdown（研究问题、检索式与数据来源、证据表、筛选汇总、研究日志），科研页“可追溯性”面板可一键下载 `.md` 文件，导出动作写入审计。
 - PaperQA2 论文问答：`POST /api/paperqa/index` 对 `data\library` / `vault` 内 PDF/MD/TXT 建立本地向量快照；`POST /api/paperqa/ask` 复用 `reasoning` / `fast` 模型角色，按调用从 Windows Credential Manager 读取密钥并在进程内构造 LiteLLM Router，返回 `answer`、`context`、`references` 和 `sources`；索引文件只存向量与文档元数据，不存密钥。
 - API 密钥写入 Windows Credential Manager，只返回配置状态。
 - `POST /api/models/test`：按调用读取密钥并执行只读模型连通性测试。
@@ -63,6 +64,7 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 - 受控浏览器自动化：Playwright（Chromium Headless Shell）已安装；动作走“域名白名单 → 风险分级 → 逐步审批 → 审计 → 紧急停止”，未批准的 `open/click/type/close` 不会执行。
 - DeepTutor 安全适配器：`GET /api/deeptutor/status` 检测运行环境与模型角色；`POST /api/deeptutor/run` 支持 `chat` / `deep_solve` / `deep_question` / `deep_research`，复用 `reasoning` / `fast` 角色和 Windows Credential Manager；密钥只在单次 CLI 调用期间写入独立工作区的 `model_catalog.json`，结束后立即还原无密钥基线；调用指标写入 `model_calls`，动作写入审计。
 - 统一 AI 对话：`POST /api/chat/ask` 先检索资料库（自然语言长句自动回退中文关键词）并汇总学习进度，再按 `reasoning` / `fast` 角色调用模型生成带 `[n]` 引用的回答；返回 `answer`、`evidence`、`learning_state`、`semantic_degraded` 与 token 统计，调用写入 `model_calls` 和审计，不持久化提示词或密钥。
+- 反讨好与证据分级：统一 AI 对话提示词要求区分【资料原文】【资料推断】【模型知识】【推测】，高影响结论标注【需验证】并建议第二来源或人工复核，用户观点有误时给出反例或边界条件而不是迎合。
 - 多轮对话：已合并进“AI 对话”页，同一气泡与来源/学习进度风格；会话历史走 `POST /v1/chat/completions`（OpenAI 兼容、支持 `scope`），按会话写入 `model_calls`（operation=`openai_compat_chat`）。可选的 NextChat 独立服务仍保留在 `127.0.0.1:3000`。
 - 用量小计与月度预算：`/api/usage` 汇总本月成功调用、Token、估算成本与 NextChat 会话小计；`PUT /api/usage/budget` 设置月度上限，超出后生成类接口返回 429。
 - 资料目录自动监听：服务运行期间默认每 5 分钟扫描资料目录与 Vault，自动增量导入并更新词法/语义索引；`/api/library/auto/*` 提供状态、设置与立即扫描。
@@ -82,12 +84,12 @@ C:\AI-PC\data\codex                   Codex 独立 CODEX_HOME
 
 2026-08-06 晚部署 PaperQA2 后：工作区与正式目录测试均为 114 passed；正式环境已用 `C:\AI-PC\data\library\paperqa-demo`（2 篇 Markdown 示例）建立论文索引（约 77 秒，含首次模型加载），`/api/paperqa/status` 返回 `index.built=true`、`document_count=2`；在未配置模型角色时提问返回 409，`model_calls` 记录 `paperqa_ask/error/role_not_configured`，审计事件正常。示例文件可在“资料库”中删除，不影响代码。
 
-2026-08-08 已接入多轮对话（并入 AI 对话页）、用量小计与月度预算、资料目录自动监听和复习提醒角标；工作区完整测试为 `144 passed`。
+2026-08-08 已接入多轮对话（并入 AI 对话页）、用量小计与月度预算、资料目录自动监听和复习提醒角标；同日新增科研证据表导出与反讨好提示词增强，工作区完整测试为 `145 passed`。
 
 ## 4. 已安装但尚未完全接入
 
 - Codex CLI `0.146.1`：已放在固定绝对路径；Dashboard 不继承个人 Codex 登录态，暂不作为网页自动执行器。
-- Zotero `9.0.6`：已安装，Dashboard 已接入只读同步（条目、集合、作者、附件路径）；自动同步尚未接入。
+- Zotero `9.0.6`：已安装，Dashboard 已接入只读同步（条目、集合、作者、附件路径）与每 6 小时自动同步；Zotero 附件 PDF 尚未纳入资料库导入白名单。
 - Obsidian `1.13.4`：Vault 已作为 Markdown 资料与笔记目录使用，但没有双向结构化同步。
 - Node.js `24.19.0` LTS：安装在项目工具目录，用于前端语法检查和后续工具链。
 - OpenAdapt：已完成项目核验，尚未安装和接入。
@@ -164,15 +166,15 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 
 ### P1：科学学习与反讨好工作流
 
-1. 把网络检索、本地资料、证据分级、反例和不确定性纳入教学与科研提示词模板。
-2. 将用户判断标记为假设或决定，要求模型区分来源事实、推断、建议和待验证事项。
-3. 对高影响结论增加第二来源、第二模型或人工复核，并保存可复现的检索式和引用。
+1. [x] 统一 AI 对话提示词已纳入本地资料、证据分级、反例/边界条件和不确定性要求；网络检索与教学/科研提示词模板仍待跟进。
+2. [x] 提示词已要求区分【资料原文】【资料推断】【模型知识】【推测】和待验证建议；用户判断的持久化标记（假设/决定字段）仍待设计。
+3. [x] 高影响结论已要求在回答中标注【需验证】并建议第二来源/人工复核，可复现检索式与引用可通过科研导出保存；自动双模型复核仍待实现。
 
 ### P1：科研增强
 
 1. [x] Zotero 只读同步已接入（手动 + 服务运行期间每 6 小时自动），保留条目 ID、集合、作者和附件路径信息。
 2. [x] PaperQA2 已接入：本地索引 + 带引用论文问答（`/api/paperqa/index`、`/api/paperqa/ask`），复用模型角色与凭据存储。
-3. 增加 PDF 全文解析、扫描件 OCR、研究证据表和可复现检索式导出。
+3. [x] 研究证据表与可复现检索式导出已接入（科研项目 Markdown 导出 + 页面下载）；PDF 全文解析与扫描件 OCR 仍待接入。
 
 ### P2：受控电脑自动化
 
@@ -183,7 +185,7 @@ C:\AI-PC\tools\deeptutor\DeepTutor-37c3db6df7e886aee4f61c97ec5e618b8ab379e8
 ### P2：运维与迁移
 
 1. [x] Dashboard 已接入备份状态、最近一次一致性检查和磁盘空间告警（`/api/ops/status`、`/api/ops/backup`）；定时自动备份与保留策略已接入（`/api/ops/backup/settings`）。
-2. 512 GB 新系统盘已就位；继续复测数据库、向量点、中文检索、凭据状态和点击启动脚本。
+2. [x] 512 GB 新系统盘已就位；2026-08-08 复测数据库完整性、19 篇文档 / 271 个向量点、磁盘剩余空间与启动脚本；启动脚本冷启动等待上限提高至 120 秒，端口被占用但健康检查失败时给出明确提示。
 3. 为版本升级增加数据库备份、迁移检查和回滚说明。
 
 ### P2：受控自我改进
@@ -215,6 +217,7 @@ git status --short
 - `/api/tools` 正确区分“已接入”“已安装”“候选”和“未检测到”。
 - `/api/models/test` 不泄露密钥，并正确区分端点错误、鉴权、限流、超时和上游错误。
 - 统一 AI 对话未配置角色返回 409 并记录 `model_calls` 与审计；回答携带 `evidence` 和 `learning_state`，密钥不进入数据库。
+- 科研项目导出接口返回包含检索式、证据表、筛选与日志的 Markdown，导出写入审计；统一 AI 对话提示词包含证据分级与【需验证】要求。
 - OpenAI 兼容端点支持多轮上下文与流式 SSE，未配置角色返回 409；`model_calls` 记录 `openai_compat_chat` / `nextchat`，测试确认密钥不进入响应、SQLite 或审计。
 - 用量接口返回成本与 Token 统计，预算超限时生成入口返回 429 并审计；资料自动扫描可新增、复用和更新文件。
 - Agent 重复交接返回 409，跨站或缺动作头返回 403，工具缺失返回 503 且任务保持 `queued`。
