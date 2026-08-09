@@ -89,3 +89,18 @@ def test_cli_client_fetches_latest_hash_before_reporting() -> None:
     assert [request.method for request in observed] == ["GET", "POST"]
     assert observed[1].headers["x-ai-pc-action"] == "bridge-result"
     assert b'"envelope_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' in observed[1].content
+
+
+def test_cli_client_does_not_route_local_bridge_through_system_proxy(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    real_client = httpx.Client
+
+    def client_factory(*args, **kwargs):
+        captured.update(kwargs)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr("backend.cli.httpx.Client", client_factory)
+    client = NexusClient(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+    client.close()
+
+    assert captured["trust_env"] is False

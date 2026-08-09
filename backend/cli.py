@@ -25,6 +25,7 @@ class NexusClient:
             timeout=20.0,
             follow_redirects=False,
             transport=transport,
+            trust_env=False,
         )
 
     def close(self) -> None:
