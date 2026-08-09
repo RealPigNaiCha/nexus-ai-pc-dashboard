@@ -1,6 +1,6 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、用户主动触发的 PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、自动复习调度执行器（复习队列与会话）、Crossref/OpenAlex 科研检索与筛选、科研笔记、可复现检索式与证据表导出、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一多轮 AI 对话（已并入“AI 对话”页，支持来源、学习进度、证据分级与 auto 模型路由）、用量小计与月度预算、复习提醒角标、Zotero 只读同步与附件导入、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、用户主动触发的 PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、自动复习调度执行器、Crossref/OpenAlex 科研检索、科研证据导出、PaperQA2、DeepTutor、统一多轮 AI 对话、隐私感知的主动联网查证、fast 整理 + reasoning 审阅的多模型协作、版本化任务信封与结果回写、Codex/CLI/MCP 桥梁、受控改进提案、用量与预算、Zotero 只读同步、VS Code + Cline 显式交接、Windows 凭据库、在线备份和审计。电脑控制尚未接入 Windows 执行器。新建数据库保持为空，不会自动生成虚构活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
 
@@ -254,7 +254,7 @@ Invoke-RestMethod `
 
 侧边栏“AI 对话”页是适合快速入门的统一问答入口：输入问题后，系统先检索本地资料和学习进度，再调用模型生成带 `[1]`、`[2]` 编号引用的回答；每次回答下方可展开“来源”核对原文路径、页码/段落和片段，“学习进度”折叠区显示待复习与薄弱前置。
 
-- `POST /api/chat/ask`：请求体为 `{question, role, scope, course_id?}`；`role` 支持 `reasoning` / `fast` / `auto`，`scope` 为 `all`（资料 + 学习，默认）、`library`（仅资料库）或 `learning`（仅学习进度）。
+- `POST /api/chat/ask`：请求体为 `{question, role, scope, course_id?, web_search?}`；`role` 支持 `reasoning` / `fast` / `auto`，`scope` 为 `all`、`library` 或 `learning`；`web_search` 支持 `auto`（默认）、`on`、`off`。自动模式只对时效/查证型问题触发，并阻止疑似本机路径、邮箱、令牌和手机号外发。
 - 检索结果与学习状态只在调用瞬间拼入提示词；回答返回 `answer`、`evidence`、`learning_state`、`semantic_degraded`、模型信息与 token 统计。
 - 自然语言长句在词法检索无结果时，会按中文关键词自动回退检索；语义索引不可用时与现有检索一致地降级到 SQLite。
 - 提示词要求证据分级：区分【资料原文】【资料推断】【模型知识】【推测】；高影响结论标注【需验证】并建议第二来源或人工复核；用户观点有误时给出反例或边界条件，而不是迎合用户。
@@ -301,7 +301,7 @@ Set-Location 'C:\AI-PC\app\dashboard'
 
 侧边栏“用量”页汇总本月模型调用：成功次数、Prompt/Completion/总 Token、按来源（操作）统计和按 NextChat 会话的小计。模型密钥仍不进入统计；成本按常见公开价目表估算，未知模型使用通用费率。
 
-设置月度预算后，`/api/chat/ask`、`/v1/chat/completions`、`/api/models/generate`、`/api/paperqa/ask` 和 `/api/deeptutor/run` 在预算用尽后会返回 `429 Monthly model budget exceeded` 并写入审计。预算为 0 表示不限制。
+设置月度预算后，`/api/chat/ask`、`/v1/chat/completions`、`/api/collaboration/run`、`/api/models/generate`、`/api/paperqa/ask` 和 `/api/deeptutor/run` 在预算用尽后会返回 `429 Monthly model budget exceeded` 并写入审计。预算为 0 表示不限制。
 
 ```powershell
 Invoke-RestMethod 'http://127.0.0.1:8765/api/usage'
@@ -597,10 +597,13 @@ git diff --check
 - `/api/paperqa/status`、`/api/paperqa/index`、`/api/paperqa/ask`
 - `/api/deeptutor/status`、`/api/deeptutor/run`
 - `/api/chat/ask`
+- `/api/collaboration/run`
 - `/v1/chat/completions`、`/v1/models`
 - `/api/usage`、`/api/usage/budget`
 - `/api/tools`、`/api/agent/status`
 - `/api/agent/tasks`、`/api/agent/tasks/{id}/progress`、`/api/agent/tasks/{id}/handoff`
+- `/api/bridge/tasks/{id}/envelope`、`/api/bridge/tasks/{id}/results`
+- `/api/improvements/signals`、`/api/improvements/proposals`、`/api/improvements/scan`、`/api/improvements/proposals/{id}/experiment`
 - `/api/settings`、`/api/audit`
 - `/api/credentials`、`/api/credentials/{provider}`
 - `/api/models/test`
@@ -614,9 +617,25 @@ git diff --check
 - `/api/browser/actions/{id}/approve`、`/api/browser/actions/{id}/reject`
 - `/api/browser/stop`、`/api/browser/resume`
 
-## 13. MCP 只读工具服务
+## 13. Codex、CLI 与版本化任务桥梁
 
-`backend/mcp_server.py` 提供只读 MCP 工具：`search_library`、`learning_progress`、`coach_report`、`coach_plan`、`research_projects`、`zotero_status`、`ops_status`、`audit_log`。工具直接调用运行中的 Dashboard API，共享同一份数据和审计；不执行写入、不读取密钥、不做任何副作用。
+`backend.cli` 通过本机 API 读取资料和任务，不继承 Codex 登录态。任务信封使用 `nexus.task-envelope` v1，并用 SHA-256 覆盖任务修订、约束、上下文描述和既有结果；过期结果回写返回 409。
+
+```powershell
+uv run python -m backend.cli health
+uv run python -m backend.cli search '检索词' --limit 10
+uv run python -m backend.cli task-envelope 12
+uv run python -m backend.cli task-report 12 --input 'C:\absolute\result.json'
+uv run python -m backend.cli collaborate --input 'C:\absolute\collaboration.json'
+uv run python -m backend.cli improvements
+.\install-codex-skill.ps1
+```
+
+多模型协作固定分为 fast 整理和 reasoning 独立审阅，两阶段分别记账并共享运行 ID。改进扫描只从近 30 天重复失败中生成去重提案；只有显式批准后才创建隔离 Agent 任务，不自动部署。
+
+## 14. MCP 只读工具服务
+
+`backend/mcp_server.py` 提供资料检索、学习、教练、科研、Agent 任务与信封、改进提案、Zotero、运维和审计等只读工具。工具直接调用运行中的 Dashboard API；不执行写入、不读取密钥、不做副作用。
 
 先启动 Dashboard，再启动 MCP 服务：
 
@@ -639,7 +658,7 @@ Set-Location 'C:\AI-PC\app\dashboard'
 }
 ```
 
-## 14. 受控浏览器自动化
+## 15. 受控浏览器自动化
 
 浏览器动作走“域名白名单 → 风险分级 → 逐步审批 → 审计 → 紧急停止”：
 

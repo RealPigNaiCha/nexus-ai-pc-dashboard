@@ -46,6 +46,27 @@ _WEB_SEARCH_PATTERNS = (
     ),
 )
 
+_AUTO_WEB_SEARCH_KEYWORDS = (
+    "最新",
+    "近期",
+    "今年",
+    "当前版本",
+    "截至",
+    "现行",
+    "事实核查",
+    "查证",
+    "研究证据",
+    "是否有新",
+    "争议",
+)
+_SENSITIVE_WEB_PATTERNS = (
+    re.compile(r"[A-Za-z]:\\"),
+    re.compile(r"/(?:Users|home)/", re.IGNORECASE),
+    re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
+    re.compile(r"\b(?:sk|ghp|gho|github_pat)-?[A-Za-z0-9_-]{12,}\b", re.IGNORECASE),
+    re.compile(r"(?<!\d)1\d{10}(?!\d)"),
+)
+
 
 def parse_chat_actions(message: str) -> list[ChatActionIntent]:
     """Parse explicit, low-risk local commands from the latest user message."""
@@ -73,6 +94,22 @@ def extract_web_search_query(message: str) -> str | None:
         if 2 <= len(query) <= 500:
             return query
     return None
+
+
+def auto_web_search_query(message: str, *, local_evidence_count: int = 0) -> str | None:
+    """Select a generic, verification-oriented query without exporting likely private text."""
+
+    text = " ".join(message.split()).strip(" 。.!！?？")
+    if not 2 <= len(text) <= 500:
+        return None
+    if any(pattern.search(text) for pattern in _SENSITIVE_WEB_PATTERNS):
+        return None
+    if not any(keyword in text for keyword in _AUTO_WEB_SEARCH_KEYWORDS):
+        return None
+    freshness = any(keyword in text for keyword in ("最新", "近期", "今年", "截至", "当前版本"))
+    if local_evidence_count > 0 and not freshness:
+        return None
+    return text
 
 
 def _parse_task_create(text: str) -> ChatActionIntent | None:

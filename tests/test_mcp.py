@@ -18,6 +18,9 @@ def test_mcp_tools_return_dashboard_data(monkeypatch) -> None:
     assert mcp_server.coach_report()["path"] == "/api/coach/report"
     assert mcp_server.coach_plan(days=30)["params"] == {"days": 14}
     assert mcp_server.research_projects()["path"] == "/api/research/projects"
+    assert mcp_server.agent_tasks()["path"] == "/api/agent/tasks"
+    assert mcp_server.task_envelope(7)["path"] == "/api/bridge/tasks/7/envelope"
+    assert mcp_server.improvement_proposals()["path"] == "/api/improvements/proposals"
     assert mcp_server.zotero_status()["path"] == "/api/zotero/status"
     assert mcp_server.ops_status()["path"] == "/api/ops/status"
     assert mcp_server.audit_log(limit=500)["params"] == {"limit": 100}

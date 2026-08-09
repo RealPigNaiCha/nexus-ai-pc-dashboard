@@ -1,0 +1,4 @@
+interface:
+  display_name: "Nexus AI-PC Bridge"
+  short_description: "Read local knowledge and synchronize Codex task results"
+  default_prompt: "Use $nexus-ai-pc-bridge to retrieve a Nexus task, use citable local knowledge, and report verified results."

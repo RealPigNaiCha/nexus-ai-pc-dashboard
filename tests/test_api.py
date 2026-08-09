@@ -34,6 +34,7 @@ def test_health_and_overview(tmp_path: Path) -> None:
         assert overview.json()["documents"] == 0
         assert overview.json()["research_projects"] == 0
         assert overview.json()["active_agent_tasks"] == 0
+        assert overview.json()["pending_improvements"] == 0
         assert overview.json()["learning_mastery"] is None
         assert overview.json()["storage_total_bytes"] > 0
         assert overview.json()["storage_free_bytes"] > 0

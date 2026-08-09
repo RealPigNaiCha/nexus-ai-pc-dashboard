@@ -32,6 +32,7 @@ class ToolRegistry:
         deeptutor_root = self.ai_pc_root / "tools" / "deeptutor"
         deeptutor_python = deeptutor_root / ".venv-cli" / "Scripts" / "python.exe"
         codex_executable = self.ai_pc_root / "tools" / "codex" / "codex.exe"
+        codex_skill = self.ai_pc_root / "data" / "codex" / "skills" / "nexus-ai-pc-bridge" / "SKILL.md"
         obsidian_executable = self.local_app_data / "Programs" / "Obsidian" / "Obsidian.exe"
         zotero_executable = self.program_files / "Zotero" / "zotero.exe"
         vault_path = self.ai_pc_root / "vault"
@@ -39,6 +40,7 @@ class ToolRegistry:
         deeptutor_installed = (deeptutor_root / "pyproject.toml").is_file()
         deeptutor_ready = deeptutor_installed and deeptutor_python.is_file()
         codex_installed = codex_executable.is_file()
+        codex_ready = codex_installed and codex_skill.is_file()
         obsidian_installed = obsidian_executable.is_file()
         zotero_installed = zotero_executable.is_file()
         obsidian_ready = obsidian_installed and vault_path.is_dir()
@@ -87,8 +89,8 @@ class ToolRegistry:
                 "codex-cli",
                 "Codex CLI",
                 "coding",
-                "installed" if codex_installed else "unavailable",
-                "isolated_manual" if codex_installed else "missing",
+                "ready" if codex_ready else "installed" if codex_installed else "unavailable",
+                "active_bridge" if codex_ready else "isolated_manual" if codex_installed else "missing",
                 codex_installed,
                 version=self._codex_version(codex_executable.parent),
                 path=codex_executable,

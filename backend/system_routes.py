@@ -38,6 +38,10 @@ def create_system_router(*, storage_root: Path, tool_registry: ToolRegistry) -> 
                     SELECT COUNT(*) FROM agent_tasks
                     WHERE status IN ('queued', 'handoff_pending', 'handoff_requested')
                 ) AS active_agent_tasks,
+                (
+                    SELECT COUNT(*) FROM improvement_proposals
+                    WHERE status = 'proposed'
+                ) AS pending_improvements,
                 (SELECT ROUND(AVG(mastery), 1) FROM learning_concepts) AS learning_mastery
             """
         )

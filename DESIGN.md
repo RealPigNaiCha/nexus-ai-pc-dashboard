@@ -106,6 +106,9 @@ flowchart LR
 | 模块 | 责任 | 不应承担的责任 |
 |---|---|---|
 | `backend/app.py` | 组装依赖、业务路由、输入校验、状态码和审计 | 解析 PDF、实现 FSRS 或直接拼 SQL 业务流程 |
+| `backend/bridge.py` | 版本化任务信封、结果解码和内容哈希 | 执行任务、读取凭据或绕过结果回写确认 |
+| `backend/cli.py` | Codex/CLI 的本机 API 客户端、任务结果和协作入口 | 保存登录态、直接读取 SQLite 或执行任意 shell |
+| `backend/improvements.py` | 从非敏感失败指标生成去重改进信号和提案 | 自动部署、修改正式目录或替用户批准实验 |
 | `backend/system_routes.py` | 健康、总览、工具注册表和审计等低耦合系统路由 | 持有业务状态或执行模型、文件和网络副作用 |
 | `backend/database.py` | SQLite schema、迁移、事务、查询和领域写入 | 调用网络、读取密钥、执行外部副作用 |
 | `backend/library.py` | 路径白名单、文件发现、PDF/Markdown/TXT 解析和分块 | 改写原始文件或绕过白名单 |
@@ -171,6 +174,10 @@ SQLite FTS5 是关键词检索的可靠回退。语义检索不可用时，API �
 
 统一对话入口 `POST /api/chat/ask` 只允许 `reasoning` / `fast` 两个文本角色；服务端先按 `scope` 检索资料（自然语言无结果时回退中文关键词）并汇总学习状态，再在同一网关生成回答。响应返回 `answer`、`evidence`、`learning_state` 和 `semantic_degraded`；每次调用记录 `model_calls`（operation=`chat`）与审计事件，不持久化提示词、回答或密钥。
 
+版本化桥梁使用 `GET /api/bridge/tasks/{id}/envelope` 和 `POST /api/bridge/tasks/{id}/results`。信封哈希覆盖任务修订、约束、上下文描述和既有结果；写回前必须重新获取，过期哈希返回 409。MCP 保持只读，写回只允许本机 CLI/网页携带显式动作头。`POST /api/collaboration/run` 依次调用 fast 整理和 reasoning 独立审阅，分别记录模型、token、成本和共享运行 ID。
+
+主动联网只在明确命令、`web_search=on` 或保守的时效/查证启发式下发生；包含疑似本机路径、邮箱、令牌或手机号的内容不做自动外发。`/api/improvements/*` 只从非敏感指标形成提案和隔离实验任务，正式更新仍必须经过人工批准、测试、备份、部署和回滚。
+
 后端暴露 OpenAI 兼容入口 `POST /v1/chat/completions` 与 `GET /v1/models`，并已合并进 Dashboard 的“AI 对话”页：同一个气泡、来源与学习进度样式，页面顶部提供“新建对话”。入口接受 `messages[]`（system/user/assistant）、`model`（`reasoning` / `fast`，或按已配置模型名自动映射）、`scope` / `course_id`、`stream`、`max_tokens`、`temperature`；最近一条用户消息仍走同一套本地资料检索与学习状态汇总，完整多轮记录拼入提示词，模型密钥仍只在调用瞬间从 Windows Credential Manager 读取。流式响应返回标准 SSE 分块；每次调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`）。
 
 用量与预算：`model_calls` 记录 `session_id`（NextChat 通过 `X-AI-PC-Session` 头按会话记账）和按常见公开价目表估算的 `estimated_cost_usd`；`/api/usage` 汇总本月调用、Token、成本、按操作统计与最近会话小计，`PUT /api/usage/budget` 设置月度上限。所有生成类入口（chat、OpenAI 兼容、models generate、paperqa、deeptutor）在预算用尽后返回 429 并写审计，预算为 0 表示不限制。
@@ -188,6 +195,8 @@ SQLite FTS5 是关键词检索的可靠回退。语义检索不可用时，API �
 ## 8. Agent 与电脑操作安全
 
 Agent 任务先写入 SQLite `queued`，用户明确交接后才通过 CAS 变成 `handoff_pending`，成功后变成 `handoff_requested`。任务 Markdown 使用原子写入和 SHA-256；URI 只带任务编号和任务文件路径，不带正文或密钥。交接请求必须是本机同源请求，并带 `X-AI-PC-Action: agent-handoff`。
+
+外部执行器回写结果时只保存摘要、引用、产物路径、测试、commit 和待确认事项，不保存完整对话。自我改进实验只能先创建 `queued` Agent 任务；提案本身不授予代码修改或部署权限。
 
 未来电脑自动化必须继续采用“动作白名单 -> 风险分级 -> 逐步确认 -> 审计 -> 紧急停止”的链路。安装、删除、外发和账号操作默认阻止；OpenAdapt 或 Playwright 只能作为执行层，不能成为权限系统。
 

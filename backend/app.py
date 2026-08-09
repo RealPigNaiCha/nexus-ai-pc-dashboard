@@ -30,7 +30,13 @@ from .browser import (
     BrowserExecutor,
     PlaywrightExecutor,
 )
-from .chat_actions import ChatActionIntent, extract_web_search_query, parse_chat_actions
+from .bridge import BRIDGE_VERSION, build_task_envelope, task_result_payload
+from .chat_actions import (
+    ChatActionIntent,
+    auto_web_search_query,
+    extract_web_search_query,
+    parse_chat_actions,
+)
 from .credentials import (
     SUPPORTED_PROVIDERS,
     ApiCredentialStore,
@@ -41,6 +47,7 @@ from .credentials import (
 from .database import Database, utc_now
 from .deeptutor import DeepTutorError, DeepTutorService
 from .learning import review_concept
+from .improvements import collect_improvement_signals, improvement_proposal_payload, scan_improvements
 from .library import (
     SUPPORTED_TYPES,
     discover_source_files,
@@ -178,6 +185,41 @@ class AgentTaskProgressUpdate(StrictModel):
     progress_note: str | None = Field(default=None, max_length=2000)
 
 
+class BridgeCitation(StrictModel):
+    kind: Literal["library", "research", "web", "file"]
+    resource_id: str | None = Field(default=None, max_length=200)
+    title: str | None = Field(default=None, max_length=500)
+    source_path: str | None = Field(default=None, max_length=32_000)
+    page: int | None = Field(default=None, ge=1)
+    paragraph: int | None = Field(default=None, ge=1)
+    url: HttpUrl | None = None
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class BridgeArtifact(StrictModel):
+    path: str = Field(min_length=1, max_length=32_000)
+    kind: str = Field(default="file", min_length=1, max_length=100)
+    sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+
+class BridgeTestResult(StrictModel):
+    command: str = Field(min_length=1, max_length=4000)
+    status: Literal["passed", "failed", "not_run"]
+    summary: str | None = Field(default=None, max_length=4000)
+
+
+class BridgeTaskResultCreate(StrictModel):
+    envelope_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    status: Literal["completed", "partial", "blocked"]
+    summary: str = Field(min_length=1, max_length=20_000)
+    citations: list[BridgeCitation] = Field(default_factory=list, max_length=100)
+    artifacts: list[BridgeArtifact] = Field(default_factory=list, max_length=100)
+    tests: list[BridgeTestResult] = Field(default_factory=list, max_length=100)
+    questions: list[str] = Field(default_factory=list, max_length=50)
+    executor: str | None = Field(default=None, max_length=100)
+    source_commit: str | None = Field(default=None, pattern=r"^[0-9a-f]{7,64}$")
+
+
 class SettingsUpdate(StrictModel):
     provider: str = Field(min_length=1, max_length=100)
     endpoint: HttpUrl
@@ -232,6 +274,17 @@ class ChatAskRequest(StrictModel):
     course_id: int | None = Field(default=None, gt=0)
     max_tokens: int = Field(default=1024, ge=1, le=8192)
     temperature: float = Field(default=0.2, ge=0, le=2)
+    web_search: Literal["auto", "on", "off"] = "auto"
+
+
+class CollaborationRequest(StrictModel):
+    prompt: str = Field(min_length=1, max_length=20_000)
+    context: str | None = Field(default=None, max_length=40_000)
+    scope: Literal["all", "library", "learning"] = "all"
+    course_id: int | None = Field(default=None, gt=0)
+    web_search: Literal["auto", "on", "off"] = "auto"
+    draft_max_tokens: int = Field(default=1024, ge=128, le=4096)
+    review_max_tokens: int = Field(default=2048, ge=128, le=8192)
 
 
 class OpenAIChatMessage(StrictModel):
@@ -247,6 +300,7 @@ class OpenAIChatRequest(StrictModel):
     course_id: int | None = Field(default=None, gt=0)
     max_tokens: int | None = Field(default=None, ge=1, le=8192)
     temperature: float | None = Field(default=None, ge=0, le=2)
+    web_search: Literal["auto", "on", "off"] = "auto"
 
 
 class BrowserActionCreate(StrictModel):
@@ -620,6 +674,29 @@ def create_app(
         fetch_site = request.headers.get("sec-fetch-site")
         if fetch_site and fetch_site not in {"same-origin", "none"}:
             raise HTTPException(status_code=403, detail="Agent handoff request was rejected")
+
+    def require_local_bridge_result(request: Request) -> None:
+        if request.headers.get("x-ai-pc-action") != "bridge-result":
+            raise HTTPException(status_code=403, detail="Bridge result request was rejected")
+        if not is_loopback_host(request.url.hostname):
+            raise HTTPException(status_code=403, detail="Bridge result request was rejected")
+        supplied_origin = request.headers.get("origin")
+        if supplied_origin:
+            request_origin = origin_identity(str(request.base_url).rstrip("/"))
+            if request_origin is None or origin_identity(supplied_origin) != request_origin:
+                raise HTTPException(status_code=403, detail="Bridge result request was rejected")
+        fetch_site = request.headers.get("sec-fetch-site")
+        if fetch_site and fetch_site not in {"same-origin", "none"}:
+            raise HTTPException(status_code=403, detail="Bridge result request was rejected")
+
+    def require_local_improvement_action(request: Request, expected: str) -> None:
+        if request.headers.get("x-ai-pc-action") != expected or not is_loopback_host(request.url.hostname):
+            raise HTTPException(status_code=403, detail="Improvement action was rejected")
+        supplied_origin = request.headers.get("origin")
+        if supplied_origin:
+            request_origin = origin_identity(str(request.base_url).rstrip("/"))
+            if request_origin is None or origin_identity(supplied_origin) != request_origin:
+                raise HTTPException(status_code=403, detail="Improvement action was rejected")
 
     @app.get("/api/library/documents")
     def list_documents(
@@ -1641,6 +1718,91 @@ def create_app(
             detail="Monthly model budget exceeded",
         )
 
+    async def generate_collaboration_stage(
+        request: Request,
+        database: Database,
+        *,
+        run_id: str,
+        role: str,
+        operation: str,
+        prompt: str,
+        system: str,
+        max_tokens: int,
+    ):
+        canonical, config = require_chat_role(
+            database,
+            role,
+            operation=operation,
+            source="dashboard_collaboration",
+            category="collaboration",
+            action=operation,
+        )
+        require_model_budget(database)
+        try:
+            result = await request.app.state.model_gateway.generate(
+                provider=canonical,
+                endpoint=config["endpoint"],
+                model=config["model"],
+                prompt=prompt,
+                system=system,
+                max_tokens=max_tokens,
+                temperature=0.1,
+                role=role,
+            )
+        except ModelRequestCancelled as error:
+            database.record_model_call(
+                provider=canonical,
+                operation=operation,
+                source="dashboard_collaboration",
+                duration_ms=error.duration_ms,
+                status="cancelled",
+                error_code="cancelled",
+                role=role,
+                session_id=run_id,
+            )
+            database.audit("collaboration", operation, role, result="cancelled")
+            raise asyncio.CancelledError from None
+        except CredentialStorageError:
+            database.record_model_call(
+                provider=canonical,
+                operation=operation,
+                source="dashboard_collaboration",
+                duration_ms=0,
+                status="error",
+                error_code="credential_store_unavailable",
+                role=role,
+                session_id=run_id,
+            )
+            database.audit("collaboration", operation, role, result="credential_store_unavailable")
+            raise HTTPException(status_code=503, detail="Credential storage is unavailable") from None
+        except ModelGatewayError as error:
+            database.record_model_call(
+                provider=canonical,
+                operation=operation,
+                source="dashboard_collaboration",
+                duration_ms=error.duration_ms,
+                status="error",
+                error_code=error.code,
+                role=role,
+                session_id=run_id,
+            )
+            database.audit("collaboration", operation, role, result=error.code)
+            raise HTTPException(status_code=error.status_code, detail=error.detail) from None
+        database.record_model_call(
+            provider=result.provider,
+            operation=operation,
+            source="dashboard_collaboration",
+            duration_ms=result.latency_ms,
+            status="success",
+            model=result.model,
+            role=result.role,
+            prompt_tokens=result.prompt_tokens,
+            completion_tokens=result.completion_tokens,
+            total_tokens=result.total_tokens,
+            session_id=run_id,
+        )
+        return result
+
     def openai_content_to_text(content: object) -> str:
         if isinstance(content, str):
             return content
@@ -1847,6 +2009,8 @@ def create_app(
         latest_user: str,
         session_id: str | None,
         action_intents: list[ChatActionIntent] | None = None,
+        web_search_mode: str = "auto",
+        local_evidence_count: int = 0,
     ) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
         receipts = execute_chat_actions(
             database,
@@ -1854,7 +2018,17 @@ def create_app(
             session_id,
         )
         web_evidence: list[dict[str, object]] = []
-        query = extract_web_search_query(latest_user)
+        explicit_query = extract_web_search_query(latest_user)
+        query = explicit_query
+        trigger = "explicit"
+        if web_search_mode == "off":
+            query = None
+        elif query is None and web_search_mode == "on":
+            query = " ".join(latest_user.split())[:500]
+            trigger = "requested"
+        elif query is None and web_search_mode == "auto":
+            query = auto_web_search_query(latest_user, local_evidence_count=local_evidence_count)
+            trigger = "auto"
         if query:
             try:
                 web_evidence = await asyncio.to_thread(active_web_search_service.search, query, limit=5)
@@ -1874,6 +2048,7 @@ def create_app(
                         "type": "web_search",
                         "status": "succeeded",
                         "result_count": len(web_evidence),
+                        "trigger": trigger,
                         "summary": f"联网检索完成，获得 {len(web_evidence)} 条来源",
                     }
                 )
@@ -2001,6 +2176,8 @@ def create_app(
             question,
             session_id,
             action_intents,
+            web_search_mode=payload.web_search,
+            local_evidence_count=len(evidence),
         )
         system = chat_system_prompt(
             evidence,
@@ -2089,6 +2266,97 @@ def create_app(
             "semantic_degraded": semantic_degraded,
         }
 
+    @app.post("/api/collaboration/run")
+    async def collaboration_run(payload: CollaborationRequest, request: Request) -> dict[str, object]:
+        database = db(request)
+        evidence, learning_state, semantic_degraded = chat_context(
+            request,
+            payload.prompt,
+            payload.scope,
+            payload.course_id,
+        )
+        web_evidence, search_receipts = await prepare_chat_extensions(
+            database,
+            payload.prompt,
+            None,
+            [],
+            web_search_mode=payload.web_search,
+            local_evidence_count=len(evidence),
+        )
+        all_evidence = evidence + web_evidence
+        grounding = chat_system_prompt(
+            evidence,
+            learning_state,
+            payload.scope,
+            web_evidence=web_evidence,
+            action_receipts=search_receipts,
+        )
+        run_id = f"collab-{uuid4().hex}"
+        task_text = payload.prompt
+        if payload.context:
+            task_text = f"{task_text}\n\n【用户提供的附加上下文】\n{payload.context}"
+        draft_system = (
+            f"{grounding}\n\n"
+            "你负责低成本整理阶段，不给出讨好式最终答案。提取可核查事实、来源编号、用户假设、"
+            "冲突、缺口和待验证项；把模型推测明确标出。输出结构化草稿供独立审阅模型使用。"
+        )
+        draft = await generate_collaboration_stage(
+            request,
+            database,
+            run_id=run_id,
+            role="fast",
+            operation="collaboration_draft",
+            prompt=task_text,
+            system=draft_system,
+            max_tokens=payload.draft_max_tokens,
+        )
+        review_system = (
+            f"{grounding}\n\n"
+            "你负责高质量综合与批评审阅。独立核对整理草稿，不得因为草稿或用户已有观点而默认同意。"
+            "指出证据冲突、反例、替代解释和剩余不确定性；高影响结论标注【需验证】。"
+            "先形成自己的判断，再吸收草稿中有证据支持的部分，输出最终答案。"
+        )
+        review_prompt = f"【原始任务】\n{task_text}\n\n【低成本模型整理草稿】\n{draft.content}"
+        review = await generate_collaboration_stage(
+            request,
+            database,
+            run_id=run_id,
+            role="reasoning",
+            operation="collaboration_review",
+            prompt=review_prompt,
+            system=review_system,
+            max_tokens=payload.review_max_tokens,
+        )
+        database.audit("collaboration", "run", run_id)
+        return {
+            "run_id": run_id,
+            "status": "ok",
+            "answer": review.content,
+            "draft": draft.content,
+            "stages": [
+                {
+                    "name": "draft",
+                    "role": draft.role,
+                    "provider": draft.provider,
+                    "model": draft.model,
+                    "usage": {"total_tokens": draft.total_tokens},
+                },
+                {
+                    "name": "review",
+                    "role": review.role,
+                    "provider": review.provider,
+                    "model": review.model,
+                    "usage": {"total_tokens": review.total_tokens},
+                },
+            ],
+            "distinct_models": (draft.provider, draft.model) != (review.provider, review.model),
+            "evidence": all_evidence,
+            "web_evidence": web_evidence,
+            "search_receipts": search_receipts,
+            "learning_state": learning_state,
+            "semantic_degraded": semantic_degraded,
+        }
+
     @app.post("/v1/chat/completions")
     async def openai_chat_completions(
         payload: OpenAIChatRequest,
@@ -2159,6 +2427,8 @@ def create_app(
             latest_user,
             session_id,
             action_intents,
+            web_search_mode=payload.web_search,
+            local_evidence_count=len(evidence),
         )
         system = chat_system_prompt(
             evidence,
@@ -2584,6 +2854,85 @@ def create_app(
             raise HTTPException(status_code=404, detail="Agent task not found")
         database.audit("agent", "update_task_progress", str(task_id))
         return task
+
+    @app.get("/api/bridge/tasks/{task_id}/envelope")
+    def get_bridge_task_envelope(task_id: int, request: Request) -> dict[str, object]:
+        database = db(request)
+        task = database.query_one("SELECT * FROM agent_tasks WHERE id = ?", (task_id,))
+        if task is None:
+            raise HTTPException(status_code=404, detail="Agent task not found")
+        return build_task_envelope(task, database.list_agent_task_results(task_id))
+
+    @app.post("/api/bridge/tasks/{task_id}/results", status_code=status.HTTP_201_CREATED)
+    def report_bridge_task_result(
+        task_id: int,
+        payload: BridgeTaskResultCreate,
+        request: Request,
+    ) -> dict[str, object]:
+        require_local_bridge_result(request)
+        database = db(request)
+        task = database.query_one("SELECT * FROM agent_tasks WHERE id = ?", (task_id,))
+        if task is None:
+            raise HTTPException(status_code=404, detail="Agent task not found")
+        current = build_task_envelope(task, database.list_agent_task_results(task_id))
+        if payload.envelope_sha256 != current["content_sha256"]:
+            raise HTTPException(status_code=409, detail="Task envelope is stale; fetch it again")
+        saved = database.save_agent_task_result(
+            task_id,
+            contract_version=BRIDGE_VERSION,
+            envelope_sha256=payload.envelope_sha256,
+            result_status=payload.status,
+            summary=payload.summary,
+            citations=[item.model_dump(mode="json") for item in payload.citations],
+            artifacts=[item.model_dump(mode="json") for item in payload.artifacts],
+            tests=[item.model_dump(mode="json") for item in payload.tests],
+            questions=payload.questions,
+            executor=payload.executor,
+            source_commit=payload.source_commit,
+        )
+        if saved is None:
+            raise HTTPException(status_code=404, detail="Agent task not found")
+        database.audit("bridge", "report_result", str(task_id))
+        updated_task = database.query_one("SELECT * FROM agent_tasks WHERE id = ?", (task_id,))
+        assert updated_task is not None
+        return {
+            "result": task_result_payload(saved),
+            "next_envelope": build_task_envelope(updated_task, database.list_agent_task_results(task_id)),
+        }
+
+    @app.get("/api/improvements/signals")
+    def get_improvement_signals(request: Request) -> dict[str, object]:
+        signals = collect_improvement_signals(db(request))
+        return {"signals": signals, "count": len(signals), "window_days": 30}
+
+    @app.get("/api/improvements/proposals")
+    def list_improvement_proposals(request: Request) -> dict[str, object]:
+        rows = db(request).query_all(
+            "SELECT * FROM improvement_proposals ORDER BY id DESC LIMIT 200"
+        )
+        return {"proposals": [improvement_proposal_payload(row) for row in rows]}
+
+    @app.post("/api/improvements/scan")
+    def scan_improvement_proposals(request: Request) -> dict[str, object]:
+        require_local_improvement_action(request, "improvement-scan")
+        database = db(request)
+        result = scan_improvements(database)
+        database.audit("improvement", "scan", None)
+        return result
+
+    @app.post("/api/improvements/proposals/{proposal_id}/experiment", status_code=status.HTTP_201_CREATED)
+    def request_improvement_experiment(proposal_id: int, request: Request) -> dict[str, object]:
+        require_local_improvement_action(request, "improvement-experiment")
+        database = db(request)
+        existing = database.query_one("SELECT id, status FROM improvement_proposals WHERE id = ?", (proposal_id,))
+        if existing is None:
+            raise HTTPException(status_code=404, detail="Improvement proposal not found")
+        result = database.request_improvement_experiment(proposal_id)
+        if result is None:
+            raise HTTPException(status_code=409, detail="Improvement proposal is not ready for an experiment")
+        proposal, task = result
+        database.audit("improvement", "request_experiment", str(proposal_id))
+        return {"proposal": improvement_proposal_payload(proposal), "task": task}
 
     @app.post("/api/agent/tasks/{task_id}/handoff")
     def handoff_agent_task(task_id: int, request: Request) -> dict[str, object]:

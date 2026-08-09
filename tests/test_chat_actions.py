@@ -1,6 +1,6 @@
 import pytest
 
-from backend.chat_actions import extract_web_search_query, parse_chat_actions
+from backend.chat_actions import auto_web_search_query, extract_web_search_query, parse_chat_actions
 
 
 @pytest.mark.parametrize(
@@ -57,3 +57,10 @@ def test_extract_explicit_web_search_query(message: str, query: str) -> None:
 
 def test_web_search_discussion_does_not_trigger_network() -> None:
     assert extract_web_search_query("你可以联网搜索吗？") is None
+
+
+def test_auto_web_search_is_selective_and_privacy_aware() -> None:
+    assert auto_web_search_query("截至今年，这个研究结论是否有新证据？") is not None
+    assert auto_web_search_query("解释本地资料里的定义") is None
+    assert auto_web_search_query(r"检查 C:\AI-PC\private\notes.txt 的最新内容") is None
+    assert auto_web_search_query("查证这个争议", local_evidence_count=2) is None

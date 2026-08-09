@@ -71,6 +71,24 @@ def research_projects() -> list[dict[str, Any]]:
 
 
 @mcp.tool()
+def agent_tasks() -> list[dict[str, Any]]:
+    """List local Agent tasks and their synchronization state."""
+    return _api_get("/api/agent/tasks")
+
+
+@mcp.tool()
+def task_envelope(task_id: int) -> dict[str, Any]:
+    """Read one versioned task envelope for Codex, Cline, CLI, or another executor."""
+    return _api_get(f"/api/bridge/tasks/{max(1, task_id)}/envelope")
+
+
+@mcp.tool()
+def improvement_proposals() -> dict[str, Any]:
+    """List controlled self-improvement proposals and experiment task links."""
+    return _api_get("/api/improvements/proposals")
+
+
+@mcp.tool()
 def zotero_status() -> dict[str, Any]:
     """Report Zotero read-only sync state and item count."""
     return _api_get("/api/zotero/status")

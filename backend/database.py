@@ -8,10 +8,11 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Sequence
+from uuid import uuid4
 
 from .usage import estimate_cost_usd
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 
 
 def utc_now() -> str:
@@ -265,6 +266,38 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
     conversation_session_id TEXT
 );
 
+CREATE TABLE IF NOT EXISTS agent_task_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    result_id TEXT NOT NULL UNIQUE,
+    task_id INTEGER NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    contract_version INTEGER NOT NULL,
+    envelope_sha256 TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('completed', 'partial', 'blocked')),
+    summary TEXT NOT NULL,
+    citations_json TEXT NOT NULL DEFAULT '[]',
+    artifacts_json TEXT NOT NULL DEFAULT '[]',
+    tests_json TEXT NOT NULL DEFAULT '[]',
+    questions_json TEXT NOT NULL DEFAULT '[]',
+    executor TEXT,
+    source_commit TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS improvement_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fingerprint TEXT NOT NULL UNIQUE,
+    signal_type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    priority TEXT NOT NULL CHECK(priority IN ('low', 'medium', 'high')),
+    evidence_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed'
+        CHECK(status IN ('proposed', 'experiment_requested', 'completed', 'rejected')),
+    agent_task_id INTEGER REFERENCES agent_tasks(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     category TEXT NOT NULL,
@@ -326,6 +359,8 @@ CREATE INDEX IF NOT EXISTS idx_research_results_paper ON research_search_results
 CREATE INDEX IF NOT EXISTS idx_research_screening_project ON research_screening_decisions(project_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_model_calls_created ON model_calls(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_task_results_task ON agent_task_results(task_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_improvement_proposals_status ON improvement_proposals(status, priority, id DESC);
 CREATE INDEX IF NOT EXISTS idx_zotero_syncs_created ON zotero_syncs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_zotero_items_type ON zotero_items(item_type);
 """
@@ -511,6 +546,161 @@ class Database:
             row = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
             connection.commit()
             return dict(row) if row else None
+
+    def list_agent_task_results(self, task_id: int) -> list[dict[str, Any]]:
+        return self.query_all(
+            "SELECT * FROM agent_task_results WHERE task_id = ? ORDER BY id",
+            (task_id,),
+        )
+
+    def save_agent_task_result(
+        self,
+        task_id: int,
+        *,
+        contract_version: int,
+        envelope_sha256: str,
+        result_status: str,
+        summary: str,
+        citations: list[dict[str, Any]],
+        artifacts: list[dict[str, Any]],
+        tests: list[dict[str, Any]],
+        questions: list[str],
+        executor: str | None,
+        source_commit: str | None,
+    ) -> dict[str, Any] | None:
+        now = utc_now()
+        result_id = f"result-{uuid4().hex}"
+        task_status = "completed" if result_status == "completed" else "blocked" if result_status == "blocked" else "result_reported"
+        progress = 100 if result_status == "completed" else None
+        with self._write_lock, self.connect() as connection:
+            task = connection.execute("SELECT id FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            if task is None:
+                return None
+            cursor = connection.execute(
+                """
+                INSERT INTO agent_task_results(
+                    result_id, task_id, contract_version, envelope_sha256, status, summary,
+                    citations_json, artifacts_json, tests_json, questions_json,
+                    executor, source_commit, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result_id,
+                    task_id,
+                    contract_version,
+                    envelope_sha256,
+                    result_status,
+                    summary,
+                    json.dumps(citations, ensure_ascii=False),
+                    json.dumps(artifacts, ensure_ascii=False),
+                    json.dumps(tests, ensure_ascii=False),
+                    json.dumps(questions, ensure_ascii=False),
+                    executor,
+                    source_commit,
+                    now,
+                ),
+            )
+            if progress is None:
+                connection.execute(
+                    "UPDATE agent_tasks SET status = ?, updated_at = ? WHERE id = ?",
+                    (task_status, now, task_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE agent_tasks
+                    SET status = ?, progress_percent = ?, progress_updated_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (task_status, progress, now, now, task_id),
+                )
+            row = connection.execute(
+                "SELECT * FROM agent_task_results WHERE id = ?",
+                (int(cursor.lastrowid),),
+            ).fetchone()
+            connection.commit()
+            return dict(row) if row else None
+
+    def save_improvement_proposal(
+        self,
+        *,
+        fingerprint: str,
+        signal_type: str,
+        title: str,
+        rationale: str,
+        priority: str,
+        evidence: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT OR IGNORE INTO improvement_proposals(
+                    fingerprint, signal_type, title, rationale, priority,
+                    evidence_json, status, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?)
+                """,
+                (
+                    fingerprint,
+                    signal_type,
+                    title,
+                    rationale,
+                    priority,
+                    json.dumps(evidence, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+            row = connection.execute(
+                "SELECT * FROM improvement_proposals WHERE fingerprint = ?",
+                (fingerprint,),
+            ).fetchone()
+            connection.commit()
+            return (dict(row) if row else {}), cursor.rowcount == 1
+
+    def request_improvement_experiment(
+        self,
+        proposal_id: int,
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            proposal = connection.execute(
+                "SELECT * FROM improvement_proposals WHERE id = ? AND status = 'proposed'",
+                (proposal_id,),
+            ).fetchone()
+            if proposal is None:
+                return None
+            task_title = (
+                f"{proposal['title']}\n\n改进依据：{proposal['rationale']}\n"
+                f"证据：{proposal['evidence_json']}"
+            )[:2000]
+            task_cursor = connection.execute(
+                """
+                INSERT INTO agent_tasks(
+                    project, title, status, run_tests, generate_summary,
+                    allow_dependencies, created_at, updated_at
+                ) VALUES ('Nexus AI-PC self-improvement', ?, 'queued', 1, 1, 0, ?, ?)
+                """,
+                (task_title, now, now),
+            )
+            task_id = int(task_cursor.lastrowid)
+            connection.execute(
+                """
+                UPDATE improvement_proposals
+                SET status = 'experiment_requested', agent_task_id = ?, updated_at = ?
+                WHERE id = ? AND status = 'proposed'
+                """,
+                (task_id, now, proposal_id),
+            )
+            saved_proposal = connection.execute(
+                "SELECT * FROM improvement_proposals WHERE id = ?",
+                (proposal_id,),
+            ).fetchone()
+            task = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            connection.commit()
+            if saved_proposal is None or task is None:
+                return None
+            return dict(saved_proposal), dict(task)
 
     def save_research_search(
         self,

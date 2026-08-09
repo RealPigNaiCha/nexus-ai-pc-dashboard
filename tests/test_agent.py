@@ -262,6 +262,9 @@ def test_tool_registry_detects_installed_external_projects(tmp_path: Path) -> No
     codex.mkdir(parents=True)
     (codex / "codex.exe").write_bytes(b"codex")
     (codex / "VERSION").write_text("0.146.1\n", encoding="utf-8")
+    codex_skill = tmp_path / "data" / "codex" / "skills" / "nexus-ai-pc-bridge"
+    codex_skill.mkdir(parents=True)
+    (codex_skill / "SKILL.md").write_text("---\nname: nexus-ai-pc-bridge\n---\n", encoding="utf-8")
     (tmp_path / "vault").mkdir()
     obsidian = tmp_path / "local" / "Programs" / "Obsidian" / "Obsidian.exe"
     obsidian.parent.mkdir(parents=True)
@@ -281,6 +284,8 @@ def test_tool_registry_detects_installed_external_projects(tmp_path: Path) -> No
     assert tools["deeptutor"]["version"] == "1.5.9"
     assert tools["deeptutor"]["integration"] == "adapter_pending"
     assert tools["codex-cli"]["version"] == "0.146.1"
+    assert tools["codex-cli"]["status"] == "ready"
+    assert tools["codex-cli"]["integration"] == "active_bridge"
     assert tools["obsidian"]["status"] == "ready"
     assert tools["zotero"]["version"] == "9.0.6"
 
