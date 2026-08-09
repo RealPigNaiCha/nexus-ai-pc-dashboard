@@ -1,5 +1,7 @@
 .venv/
 .pytest_cache/
+.coverage
+htmlcov/
 __pycache__/
 *.py[cod]
 data/
@@ -8,3 +10,4 @@ agent-tasks/
 *.sqlite3-shm
 *.sqlite3-wal
 .browser-test/
+tmp/

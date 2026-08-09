@@ -19,7 +19,7 @@ import os
 import subprocess
 import tempfile
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from pathlib import Path
 from time import perf_counter
 from typing import Any

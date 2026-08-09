@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Nexus AI-PC</title>
-  <link rel="stylesheet" href="styles.css?v=20260807-claude">
+  <link rel="stylesheet" href="styles.css?v=20260808-focus">
   <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-  <script src="app.js?v=20260807-claude" defer></script>
+  <script src="app.js?v=20260808-focus" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -16,35 +16,48 @@
         <div class="brand-mark" aria-hidden="true">N</div>
         <div>
           <strong>Nexus</strong>
-          <span>AI-PC</span>
+          <span>本地知识工作台</span>
         </div>
       </div>
 
+      <button class="sidebar-new-chat" id="sidebar-new-chat" type="button" data-go="chat">
+        <i data-lucide="square-pen" aria-hidden="true"></i><span>新建对话</span>
+      </button>
+
       <nav class="primary-nav">
-        <button class="nav-item is-active" type="button" data-page="overview" aria-current="page" title="总览" aria-label="总览">
-          <i data-lucide="layout-dashboard" aria-hidden="true"></i><span>总览</span>
+        <p class="nav-label">核心</p>
+        <button class="nav-item is-active" type="button" data-page="overview" aria-current="page" title="开始" aria-label="开始">
+          <i data-lucide="house" aria-hidden="true"></i><span>开始</span>
         </button>
         <button class="nav-item" type="button" data-page="chat" title="AI 对话" aria-label="AI 对话">
           <i data-lucide="message-circle" aria-hidden="true"></i><span>AI 对话</span>
         </button>
-        <button class="nav-item" type="button" data-page="usage" title="用量" aria-label="用量">
-          <i data-lucide="gauge" aria-hidden="true"></i><span>用量</span>
-        </button>
-        <button class="nav-item" type="button" data-page="learning" title="学习" aria-label="学习">
-          <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span><span class="nav-badge" id="learning-nav-badge" hidden>0</span>
-        </button>
         <button class="nav-item" type="button" data-page="library" title="资料库" aria-label="资料库">
           <i data-lucide="library" aria-hidden="true"></i><span>资料库</span>
+        </button>
+
+        <p class="nav-label">工作流</p>
+        <button class="nav-item" type="button" data-page="learning" title="学习" aria-label="学习">
+          <i data-lucide="graduation-cap" aria-hidden="true"></i><span>学习</span><span class="nav-badge" id="learning-nav-badge" hidden>0</span>
         </button>
         <button class="nav-item" type="button" data-page="research" title="科研" aria-label="科研">
           <i data-lucide="microscope" aria-hidden="true"></i><span>科研</span>
         </button>
-        <button class="nav-item" type="button" data-page="coding" title="编程" aria-label="编程">
-          <i data-lucide="square-terminal" aria-hidden="true"></i><span>编程</span>
-        </button>
-        <button class="nav-item" type="button" data-page="automation" title="自动化" aria-label="自动化">
-          <i data-lucide="workflow" aria-hidden="true"></i><span>自动化</span>
-        </button>
+
+        <details class="nav-disclosure">
+          <summary><i data-lucide="blocks" aria-hidden="true"></i><span>更多工具</span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+          <div>
+            <button class="nav-item" type="button" data-page="coding" title="编程" aria-label="编程">
+              <i data-lucide="square-terminal" aria-hidden="true"></i><span>编程 Agent</span>
+            </button>
+            <button class="nav-item" type="button" data-page="automation" title="自动化" aria-label="自动化">
+              <i data-lucide="workflow" aria-hidden="true"></i><span>自动化</span>
+            </button>
+            <button class="nav-item" type="button" data-page="usage" title="用量" aria-label="用量">
+              <i data-lucide="gauge" aria-hidden="true"></i><span>用量与预算</span>
+            </button>
+          </div>
+        </details>
       </nav>
 
       <div class="nav-spacer"></div>
@@ -70,8 +83,8 @@
           <i data-lucide="menu" aria-hidden="true"></i>
         </button>
         <div class="page-heading">
-          <span id="page-eyebrow">工作台</span>
-          <h1 id="page-title">总览</h1>
+          <span id="page-eyebrow">本地知识工作台</span>
+          <h1 id="page-title">开始</h1>
         </div>
         <div class="topbar-tools">
           <label class="global-search">
@@ -86,84 +99,75 @@
       </header>
 
       <main class="main-content">
-        <section class="page is-active" id="page-overview" data-title="总览" data-eyebrow="工作台">
-          <div class="welcome-row">
-            <div>
-              <p class="section-kicker" id="today-label">功能概览</p>
-              <h2>把最重要的工作向前推进</h2>
-              <p class="supporting-text">资料库与计数来自本地服务；学习建议、计划和活动仍在逐步接入。</p>
+        <section class="page is-active" id="page-overview" data-title="开始" data-eyebrow="本地知识工作台">
+          <section class="home-hero" aria-labelledby="home-title">
+            <div class="home-intro">
+              <p class="section-kicker" id="today-label">Nexus</p>
+              <h2 id="home-title">从本地资料，到可靠答案与下一步行动</h2>
+              <p>围绕你的 PDF、笔记和学习记录开展对话、学习与研究，重要结论始终可以回到来源核对。</p>
             </div>
-            <button class="secondary-button" id="continue-setup" type="button">
-              <i data-lucide="sliders-horizontal" aria-hidden="true"></i><span>完成初始设置</span>
-            </button>
+
+            <form class="home-composer" id="overview-prompt-form">
+              <label class="sr-only" for="overview-prompt">向 Nexus 提问</label>
+              <textarea id="overview-prompt" rows="3" maxlength="2000" placeholder="今天想理解、查找或推进什么？"></textarea>
+              <div class="home-composer-footer">
+                <span><i data-lucide="shield-check" aria-hidden="true"></i>优先使用本地资料与可核对来源</span>
+                <button class="home-send" id="overview-send" type="submit" aria-label="发送到 AI 对话" data-tooltip="发送">
+                  <i data-lucide="arrow-up" aria-hidden="true"></i>
+                </button>
+              </div>
+            </form>
+
+            <div class="home-suggestions" aria-label="提问建议">
+              <button type="button" data-overview-prompt="总结我最近导入的资料，并列出需要核对的结论"><i data-lucide="scan-text" aria-hidden="true"></i><span>总结最近资料</span></button>
+              <button type="button" data-overview-prompt="根据我的学习进度，告诉我今天最应该复习什么"><i data-lucide="book-open-check" aria-hidden="true"></i><span>安排今日复习</span></button>
+              <button type="button" data-overview-prompt="基于本地资料梳理一个研究问题，并给出可验证的下一步"><i data-lucide="microscope" aria-hidden="true"></i><span>推进研究问题</span></button>
+            </div>
+          </section>
+
+          <nav class="home-actions" aria-label="常用操作">
+            <button type="button" id="overview-import" data-go="library"><i data-lucide="file-up" aria-hidden="true"></i><span>导入资料</span></button>
+            <button type="button" id="overview-start-review" data-go="learning"><i data-lucide="calendar-check-2" aria-hidden="true"></i><span>开始复习</span></button>
+            <button type="button" id="overview-new-research" data-go="research"><i data-lucide="folder-plus" aria-hidden="true"></i><span>新建研究</span></button>
+          </nav>
+
+          <div class="home-dashboard">
+            <section class="home-section home-tasks" aria-labelledby="overview-tasks-title">
+              <div class="home-section-heading">
+                <div><p class="section-kicker">接下来</p><h2 id="overview-tasks-title">待处理</h2></div>
+                <span class="status-label is-neutral" id="overview-tasks-state">读取中</span>
+              </div>
+              <ul class="task-list" id="overview-task-list">
+                <li class="overview-task-empty">正在汇总到期复习与待交接任务…</li>
+              </ul>
+            </section>
+
+            <section class="home-section home-knowledge" aria-labelledby="home-knowledge-title">
+              <div class="home-section-heading">
+                <div><p class="section-kicker">本地底座</p><h2 id="home-knowledge-title">知识状态</h2></div>
+                <button class="icon-button compact" id="continue-setup" type="button" aria-label="检查系统设置" data-tooltip="检查系统设置"><i data-lucide="settings-2" aria-hidden="true"></i></button>
+              </div>
+              <dl class="home-stats">
+                <div><dt>已索引资料 <small id="indexed-status">读取本地索引</small></dt><dd id="indexed-count">—</dd></div>
+                <div><dt>学习掌握度 <small id="overview-learning-status">读取本地记录</small></dt><dd id="overview-learning-mastery">—</dd></div>
+                <div><dt>科研项目 <small id="project-count-status">读取数据库记录</small></dt><dd id="project-count">—</dd></div>
+                <div><dt>Agent 任务 <small id="agent-count-status">读取未完成任务</small></dt><dd id="agent-count">—</dd></div>
+              </dl>
+            </section>
           </div>
 
-          <div class="metric-grid" aria-label="今日概览">
-            <article class="metric-card">
-              <div class="metric-icon learning-color"><i data-lucide="book-open-check" aria-hidden="true"></i></div>
-              <div><span>学习掌握度</span><strong id="overview-learning-mastery">—</strong><small id="overview-learning-status">读取本地记录</small></div>
-            </article>
-            <article class="metric-card">
-              <div class="metric-icon library-color"><i data-lucide="files" aria-hidden="true"></i></div>
-              <div><span>已索引资料</span><strong id="indexed-count">—</strong><small id="indexed-status">读取本地索引</small></div>
-            </article>
-            <article class="metric-card">
-              <div class="metric-icon research-color"><i data-lucide="flask-conical" aria-hidden="true"></i></div>
-              <div><span>科研项目</span><strong id="project-count">—</strong><small id="project-count-status">读取数据库记录</small></div>
-            </article>
-            <article class="metric-card">
-              <div class="metric-icon code-color"><i data-lucide="git-pull-request-arrow" aria-hidden="true"></i></div>
-              <div><span>Agent 任务</span><strong id="agent-count">—</strong><small id="agent-count-status">读取未完成任务</small></div>
-            </article>
-          </div>
-
-          <section class="quick-actions" aria-labelledby="quick-actions-title">
-            <div class="section-heading">
-              <div><p class="section-kicker">快速入口</p><h2 id="quick-actions-title">今天要做什么</h2></div>
-            </div>
-            <div class="action-grid">
-              <button type="button" class="action-tile" data-go="learning">
-                <i data-lucide="play-circle" aria-hidden="true"></i>
-                <span><strong>继续学习</strong><small>课程、答题与到期复习</small></span>
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
-              <button type="button" class="action-tile" data-go="library">
-                <i data-lucide="file-up" aria-hidden="true"></i>
-                <span><strong>导入资料</strong><small>PDF、Markdown 或 TXT</small></span>
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
-              <button type="button" class="action-tile" data-go="research">
-                <i data-lucide="search-check" aria-hidden="true"></i>
-                <span><strong>推进科研</strong><small>双源检索与文献筛选</small></span>
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
-              <button type="button" class="action-tile" data-go="coding">
-                <i data-lucide="code-xml" aria-hidden="true"></i>
-                <span><strong>交给编程 Agent</strong><small>VS Code + Cline · 显式交接</small></span>
-                <i data-lucide="chevron-right" aria-hidden="true"></i>
-              </button>
-            </div>
-          </section>
-
-          <section class="panel overview-tasks-panel" aria-labelledby="overview-tasks-title">
-            <div class="panel-heading"><div><p class="section-kicker">本地任务</p><h2 id="overview-tasks-title">今日任务</h2></div><span class="status-label is-neutral" id="overview-tasks-state">读取中</span></div>
-            <ul class="task-list" id="overview-task-list">
-              <li class="overview-task-empty">正在汇总到期复习与待交接任务…</li>
-            </ul>
-          </section>
-
-          <section class="activity-section" aria-labelledby="activity-title">
-            <div class="section-heading">
-              <div><p class="section-kicker">审计记录</p><h2 id="activity-title">最近活动</h2></div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>时间</th><th>活动</th><th>模块</th><th>结果</th></tr></thead>
-                <tbody id="overview-activity-body"><tr><td colspan="4"><span class="status-label is-neutral">读取中</span></td></tr></tbody>
-              </table>
-            </div>
-          </section>
-
+          <details class="activity-details">
+            <summary><span><i data-lucide="history" aria-hidden="true"></i>最近活动</span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+            <section class="activity-section" aria-labelledby="activity-title">
+              <h2 class="sr-only" id="activity-title">最近活动</h2>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>时间</th><th>活动</th><th>模块</th><th>结果</th></tr></thead>
+                  <tbody id="overview-activity-body"><tr><td colspan="4"><span class="status-label is-neutral">读取中</span></td></tr></tbody>
+                </table>
+              </div>
+            </section>
+          </details>
         </section>
 
         <section class="page" id="page-chat" data-title="AI 对话" data-eyebrow="本地知识助手">
@@ -185,7 +189,8 @@
                 <div class="chat-examples">
                   <button class="chat-example" type="button" data-example="数列极限的 ε-N 定义是什么？">数列极限的 ε-N 定义</button>
                   <button class="chat-example" type="button" data-example="根据我的学习进度，我下一步该复习什么？">下一步学什么</button>
-                  <button class="chat-example" type="button" data-example="帮我总结资料库中关于这个主题的内容">总结资料</button>
+                  <button class="chat-example" type="button" data-example="联网搜索 RapidOCR 最近版本">联网检索</button>
+                  <button class="chat-example" type="button" data-example="创建任务：测试 OCR 公式检索">创建任务</button>
                 </div>
               </div>
             </div>
@@ -215,7 +220,7 @@
                 <span class="status-label is-neutral" id="chat-session-label">新对话</span>
               </div>
               <div class="chat-input-row">
-                <textarea id="chat-input" rows="2" maxlength="2000" placeholder="输入问题，例如：数列极限的 ε-N 定义是什么？"></textarea>
+                <textarea id="chat-input" rows="2" maxlength="2000" placeholder="输入问题或命令"></textarea>
                 <button class="primary-button chat-send" id="chat-send" type="button">
                   <i data-lucide="send" aria-hidden="true"></i><span>发送</span>
                 </button>
@@ -237,8 +242,10 @@
             <span class="status-label is-neutral learning-sample-label" id="learning-data-status">暂无本地记录</span>
           </div>
 
-          <div class="learning-management two-column-layout">
-            <section class="panel" aria-labelledby="course-management-title">
+          <details class="workflow-details learning-setup-details">
+            <summary><span><i data-lucide="list-tree" aria-hidden="true"></i><strong>管理课程与知识点</strong></span><i data-lucide="chevron-down" aria-hidden="true"></i></summary>
+            <div class="learning-management two-column-layout">
+              <section class="panel" aria-labelledby="course-management-title">
               <div class="panel-heading"><div><p class="section-kicker">课程</p><h2 id="course-management-title">选择或创建课程</h2></div><span class="status-label is-neutral" id="learning-course-state">未选择</span></div>
               <form class="learning-form-grid" id="learning-course-form">
                 <label><span>当前课程</span><select id="learning-course-select" aria-label="当前课程"><option value="">全部课程</option></select></label>
@@ -247,9 +254,9 @@
                 <label><span>目标日期（可选）</span><input id="learning-course-date" type="date"></label>
                 <div class="form-action"><button class="primary-button" type="submit"><i data-lucide="plus" aria-hidden="true"></i><span>创建课程</span></button></div>
               </form>
-            </section>
+              </section>
 
-            <section class="panel" aria-labelledby="concept-management-title">
+              <section class="panel" aria-labelledby="concept-management-title">
               <div class="panel-heading"><div><p class="section-kicker">知识点</p><h2 id="concept-management-title">添加学习单元</h2></div><span class="status-label is-neutral" id="learning-concept-state">需先创建课程</span></div>
               <form class="learning-form-grid" id="learning-concept-form">
                 <label><span>所属课程</span><select id="learning-concept-course" required><option value="">请选择课程</option></select></label>
@@ -271,8 +278,9 @@
               <div class="panel-heading"><div><p class="section-kicker">间隔复习</p><h2 id="review-title">到期复习</h2></div><span class="panel-total" id="learning-due-total">0 个</span></div>
               <div class="review-list" id="learning-review-list"><div class="learning-empty"><i data-lucide="calendar-clock" aria-hidden="true"></i><div><strong>暂无到期复习</strong><span>完成答题后，系统会使用复习排程计算下一次复习时间。</span></div></div></div>
               <div class="lesson-focus learning-next-focus" id="learning-next-focus" hidden></div>
-            </section>
-          </div>
+              </section>
+            </div>
+          </details>
 
           <section class="panel" aria-labelledby="coach-title">
             <div class="panel-heading"><div><p class="section-kicker">学习教练</p><h2 id="coach-title">可解释进度报告</h2></div><span class="status-label is-neutral" id="coach-state">待读取</span></div>
@@ -285,16 +293,19 @@
             </div>
           </section>
 
-          <section class="panel deeptutor-panel" aria-labelledby="deeptutor-title">
-            <div class="panel-heading"><div><p class="section-kicker">DeepTutor</p><h2 id="deeptutor-title">教学与研究问答</h2><p class="supporting-text">外部可替换教学能力；先配置模型角色和密钥，调用会写入审计与模型调用记录，密钥不会持久化到 DeepTutor 配置。</p></div><span class="status-label is-neutral" id="deeptutor-state">读取中</span></div>
-            <div class="settings-fields deeptutor-fields">
-              <label><span>能力</span><select id="deeptutor-capability"><option value="chat">自由对话</option><option value="deep_solve">深度解题</option><option value="deep_question">生成题目</option><option value="deep_research">深度研究</option></select></label>
-              <label><span>模型角色</span><select id="deeptutor-role"><option value="auto">自动（按复杂度）</option><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
-              <label class="wide-field"><span>提示词</span><textarea id="deeptutor-prompt" rows="3" maxlength="4000" placeholder="例如：请用苏格拉底式提问帮我理解数列极限"></textarea></label>
-              <div class="field-action wide-field"><button class="primary-button" id="run-deeptutor" type="button"><i data-lucide="sparkles" aria-hidden="true"></i><span>运行 DeepTutor</span></button><span id="deeptutor-message" aria-live="polite">等待配置模型角色</span></div>
-            </div>
-            <div class="deeptutor-output" id="deeptutor-output" hidden></div>
-          </section>
+          <details class="workflow-details capability-details">
+            <summary><span><i data-lucide="sparkles" aria-hidden="true"></i><strong>DeepTutor 教学能力</strong></span><span class="workflow-summary-end"><span class="status-label is-neutral" id="deeptutor-state">读取中</span><i data-lucide="chevron-down" aria-hidden="true"></i></span></summary>
+            <section class="panel deeptutor-panel" aria-labelledby="deeptutor-title">
+              <div class="panel-heading"><div><p class="section-kicker">DeepTutor</p><h2 id="deeptutor-title">教学与研究问答</h2><p class="supporting-text">外部可替换教学能力；先配置模型角色和密钥，调用会写入审计与模型调用记录，密钥不会持久化到 DeepTutor 配置。</p></div></div>
+              <div class="settings-fields deeptutor-fields">
+                <label><span>能力</span><select id="deeptutor-capability"><option value="chat">自由对话</option><option value="deep_solve">深度解题</option><option value="deep_question">生成题目</option><option value="deep_research">深度研究</option></select></label>
+                <label><span>模型角色</span><select id="deeptutor-role"><option value="auto">自动（按复杂度）</option><option value="reasoning">深度推理</option><option value="fast">快速任务</option></select></label>
+                <label class="wide-field"><span>提示词</span><textarea id="deeptutor-prompt" rows="3" maxlength="4000" placeholder="例如：请用苏格拉底式提问帮我理解数列极限"></textarea></label>
+                <div class="field-action wide-field"><button class="primary-button" id="run-deeptutor" type="button"><i data-lucide="sparkles" aria-hidden="true"></i><span>运行 DeepTutor</span></button><span id="deeptutor-message" aria-live="polite">等待配置模型角色</span></div>
+              </div>
+              <div class="deeptutor-output" id="deeptutor-output" hidden></div>
+            </section>
+          </details>
 
           <section class="panel question-panel" aria-labelledby="attempt-title" id="learning-attempt-panel">
             <div class="panel-heading"><div><p class="section-kicker">答题证据</p><h2 id="attempt-title">记录一次练习或复习</h2></div><span class="status-label is-neutral" id="learning-attempt-state">保存到本地数据库</span></div>
@@ -334,15 +345,6 @@
             <p class="library-import-feedback" id="library-import-feedback" role="status" aria-live="polite"></p>
           </form>
 
-          <section class="panel library-auto-panel" aria-labelledby="library-auto-title">
-            <div class="panel-heading"><div><p class="section-kicker">自动监听</p><h2 id="library-auto-title">资料目录自动导入</h2></div><span class="status-label is-neutral" id="library-auto-state">读取中</span></div>
-            <div class="library-auto-controls">
-              <label class="check-control"><input id="library-auto-enabled" type="checkbox"><span>启用自动扫描（检查资料目录与 Vault）</span></label>
-              <label class="library-auto-interval"><span>扫描间隔（秒）</span><input id="library-auto-interval" type="number" min="60" max="86400" step="60" value="300"></label>
-              <div class="field-action wide-field"><button class="secondary-button" id="library-auto-save" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存设置</span></button><button class="secondary-button" id="library-auto-scan" type="button"><i data-lucide="scan-line" aria-hidden="true"></i><span>立即扫描</span></button><span id="library-auto-message" aria-live="polite"></span></div>
-            </div>
-          </section>
-
           <form class="filter-toolbar" id="library-search-form" role="search">
             <label class="search-field"><i data-lucide="search" aria-hidden="true"></i><span class="sr-only">搜索资料内容</span><input id="library-search" name="q" type="search" placeholder="搜索资料内容" autocomplete="off"></label>
             <button class="secondary-button" id="library-search-submit" type="submit"><i data-lucide="search" aria-hidden="true"></i><span>搜索</span></button>
@@ -375,7 +377,7 @@
             <aside class="panel storage-panel" aria-labelledby="storage-title">
               <div class="panel-heading"><div><p class="section-kicker">存储与索引</p><h2 id="storage-title">C 盘空间</h2></div><button class="icon-button compact" id="semantic-rebuild" type="button" aria-label="重建语义索引" data-tooltip="重建语义索引"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></div>
               <div class="storage-meter"><div><span id="storage-meter-fill" style="width:0"></span></div><p><strong id="storage-used">读取中</strong> / <span id="storage-total">—</span></p></div>
-              <dl class="storage-breakdown"><div><dt><i class="legend-swatch learning-swatch"></i>剩余空间</dt><dd id="storage-free">—</dd></div><div><dt><i class="legend-swatch research-swatch"></i>语义索引</dt><dd id="semantic-index-state">读取中</dd></div><div><dt><i class="legend-swatch code-swatch"></i>AI-PC 根目录</dt><dd id="storage-root">C:\AI-PC</dd></div></dl>
+              <dl class="storage-breakdown"><div><dt><i class="legend-swatch learning-swatch"></i>剩余空间</dt><dd id="storage-free">—</dd></div><div><dt><i class="legend-swatch research-swatch"></i>语义索引</dt><dd id="semantic-index-state">读取中</dd></div><div><dt><i class="legend-swatch library-swatch"></i>PDF OCR</dt><dd id="ocr-engine-state">读取中</dd></div><div><dt><i class="legend-swatch code-swatch"></i>AI-PC 根目录</dt><dd id="storage-root">C:\AI-PC</dd></div></dl>
             </aside>
           </div>
         </section>
@@ -559,56 +561,74 @@
         <section class="page" id="page-settings" data-title="设置" data-eyebrow="系统配置">
           <div class="page-intro">
             <div><p class="section-kicker">初始设置</p><h2>连接服务并保护本地数据</h2><p class="supporting-text">模型服务、凭据状态和本地工具都可以在这里管理。</p></div>
-            <button class="primary-button" id="save-settings" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存设置</span></button>
           </div>
 
           <div class="settings-layout">
             <details class="advanced-settings settings-section" open>
               <summary>模型与生成<i data-lucide="chevron-down" aria-hidden="true"></i></summary>
 
-            <section class="settings-section" aria-labelledby="provider-title">
-              <div class="settings-heading"><div><h2 id="provider-title">模型服务</h2><p>密钥保存在 Windows 凭据管理器；连接测试不会保存或显示密钥。</p></div><span class="status-label is-neutral" id="provider-state">读取中</span></div>
-              <div class="settings-fields">
-                <label><span>服务商</span><select id="provider-select"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
-                <label><span>API 地址</span><input id="api-endpoint" type="url" value="https://api.openai.com/v1" required></label>
-                <label class="wide-field"><span>API 密钥</span><div class="secret-field"><input id="api-key" type="password" autocomplete="off" placeholder="输入后仅写入系统凭据库"><button class="icon-button compact" id="toggle-key" type="button" aria-label="显示或隐藏密钥"><i data-lucide="eye" aria-hidden="true"></i></button></div></label>
-                <div class="field-action wide-field"><button class="secondary-button" id="save-provider" type="button"><i data-lucide="shield-check" aria-hidden="true"></i><span>保存密钥</span></button><button class="secondary-button" id="test-provider" type="button"><i data-lucide="plug-zap" aria-hidden="true"></i><span>测试连接</span></button><span id="provider-message" aria-live="polite">密钥只存入 Windows 凭据管理器</span></div>
+            <section class="settings-section ai-services-section" aria-labelledby="provider-title">
+              <div class="settings-heading"><div><h2 id="provider-title">AI 服务</h2><p>先选择服务商，再维护地址和密钥；所有已保存状态与角色用途会集中显示。</p></div><span class="status-label is-neutral" id="ai-services-state">读取中</span></div>
+              <div class="ai-provider-layout">
+                <aside class="provider-directory" aria-label="模型服务商">
+                  <div class="provider-directory-heading"><strong>服务商</strong><span id="provider-configured-count">0 / 6 已配置</span></div>
+                  <div class="provider-list" id="provider-list" role="list">
+                    <button class="provider-list-item is-active" type="button" data-provider="openai" aria-pressed="true"><span class="provider-mark"><i data-lucide="brain-circuit" aria-hidden="true"></i></span><span class="provider-copy"><strong>OpenAI</strong><small class="provider-usage">读取角色用途</small></span><span class="provider-credential is-loading">读取中</span></button>
+                    <button class="provider-list-item" type="button" data-provider="openai-compatible" aria-pressed="false"><span class="provider-mark"><i data-lucide="waypoints" aria-hidden="true"></i></span><span class="provider-copy"><strong>OpenAI 兼容</strong><small class="provider-usage">读取角色用途</small></span><span class="provider-credential is-loading">读取中</span></button>
+                    <button class="provider-list-item" type="button" data-provider="anthropic" aria-pressed="false"><span class="provider-mark"><i data-lucide="sparkles" aria-hidden="true"></i></span><span class="provider-copy"><strong>Anthropic</strong><small class="provider-usage">读取角色用途</small></span><span class="provider-credential is-loading">读取中</span></button>
+                    <button class="provider-list-item" type="button" data-provider="google-gemini" aria-pressed="false"><span class="provider-mark"><i data-lucide="gem" aria-hidden="true"></i></span><span class="provider-copy"><strong>Google Gemini</strong><small class="provider-usage">读取角色用途</small></span><span class="provider-credential is-loading">读取中</span></button>
+                    <button class="provider-list-item" type="button" data-provider="deepseek" aria-pressed="false"><span class="provider-mark"><i data-lucide="search-code" aria-hidden="true"></i></span><span class="provider-copy"><strong>DeepSeek</strong><small class="provider-usage">读取角色用途</small></span><span class="provider-credential is-loading">读取中</span></button>
+                    <button class="provider-list-item" type="button" data-provider="alibaba-bailian" aria-pressed="false"><span class="provider-mark"><i data-lucide="cloud" aria-hidden="true"></i></span><span class="provider-copy"><strong>阿里云百炼</strong><small class="provider-usage">读取角色用途</small></span><span class="provider-credential is-loading">读取中</span></button>
+                  </div>
+                </aside>
+
+                <div class="provider-detail">
+                  <input id="provider-select" type="hidden" value="openai">
+                  <div class="provider-detail-heading">
+                    <div><p class="section-kicker">当前服务商</p><h3 id="provider-detail-name">OpenAI</h3><p id="provider-detail-description">OpenAI 官方 API 服务。</p></div>
+                    <span class="status-label is-neutral" id="provider-state">读取中</span>
+                  </div>
+                  <dl class="provider-summary">
+                    <div><dt>凭据</dt><dd id="provider-credential-summary">读取中</dd></div>
+                    <div><dt>角色用途</dt><dd id="provider-role-summary">尚未用于角色</dd></div>
+                  </dl>
+                  <div class="settings-fields provider-fields">
+                    <label class="wide-field"><span>API 地址</span><input id="api-endpoint" type="url" value="https://api.openai.com/v1" required></label>
+                    <label class="wide-field"><span>API 密钥</span><div class="secret-field"><input id="api-key" type="password" autocomplete="off" placeholder="输入新密钥；已保存的密钥不会回显"><button class="icon-button compact" id="toggle-key" type="button" aria-label="显示或隐藏密钥" data-tooltip="显示或隐藏密钥"><i data-lucide="eye" aria-hidden="true"></i></button></div></label>
+                    <div class="field-action wide-field provider-actions"><button class="secondary-button" id="save-settings" type="button"><i data-lucide="save" aria-hidden="true"></i><span>保存地址</span></button><button class="secondary-button" id="save-provider" type="button"><i data-lucide="shield-check" aria-hidden="true"></i><span>保存密钥</span></button><button class="secondary-button" id="test-provider" type="button"><i data-lucide="plug-zap" aria-hidden="true"></i><span>测试连接</span></button></div>
+                    <p class="provider-message wide-field" id="provider-message" aria-live="polite">密钥只存入 Windows 凭据管理器</p>
+                  </div>
+                </div>
               </div>
             </section>
 
             <section class="settings-section" aria-labelledby="model-roles-title">
-              <div class="settings-heading"><div><h2 id="model-roles-title">模型角色</h2><p>按任务选择服务商和模型；只有你显式配置的角色才会用于生成调用，调用只记录指标不保存正文。</p></div><button class="secondary-button" id="refresh-model-roles" type="button"><i data-lucide="refresh-cw" aria-hidden="true"></i><span>刷新角色</span></button></div>
-              <div class="model-roles-list" id="model-roles-list">
+              <div class="settings-heading"><div><h2 id="model-roles-title">模型角色</h2><p>将不同任务路由到合适的服务商和模型；状态会同时检查模型 ID 与对应密钥。</p></div><button class="icon-button compact" id="refresh-model-roles" type="button" aria-label="刷新模型角色" data-tooltip="刷新模型角色"><i data-lucide="refresh-cw" aria-hidden="true"></i></button></div>
+              <div class="model-role-table" id="model-roles-list">
+                <div class="model-role-columns" aria-hidden="true"><span>任务</span><span>服务商</span><span>模型 ID</span><span>API 地址</span><span>状态</span></div>
                 <div class="model-role-row" data-role="reasoning">
-                  <div class="model-role-heading"><strong>深度推理</strong><span class="status-label is-neutral">读取中</span></div>
-                  <div class="settings-fields">
-                    <label><span>服务商</span><select class="role-provider"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
-                    <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1"></label>
-                    <label class="wide-field"><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://你的模型服务地址/v1"></label>
-                    <div class="field-action wide-field"><button class="secondary-button role-save" type="button" data-role="reasoning"><i data-lucide="save" aria-hidden="true"></i><span>保存角色</span></button><span class="role-message" aria-live="polite"></span></div>
-                  </div>
+                  <div class="model-role-identity"><span class="role-icon"><i data-lucide="brain-circuit" aria-hidden="true"></i></span><div><strong>深度推理</strong><small>复杂分析与规划</small></div></div>
+                  <label><span>服务商</span><select class="role-provider"><option value="openai">OpenAI</option><option value="openai-compatible">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="google-gemini">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="alibaba-bailian">阿里云百炼</option></select></label>
+                  <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1"></label>
+                  <label><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://模型服务地址/v1"></label>
+                  <div class="model-role-action"><span class="status-label is-neutral">读取中</span><button class="icon-button compact role-save" type="button" data-role="reasoning" aria-label="保存深度推理角色" data-tooltip="保存角色"><i data-lucide="save" aria-hidden="true"></i></button><small class="role-message" aria-live="polite"></small></div>
                 </div>
                 <div class="model-role-row" data-role="fast">
-                  <div class="model-role-heading"><strong>快速任务</strong><span class="status-label is-neutral">读取中</span></div>
-                  <div class="settings-fields">
-                    <label><span>服务商</span><select class="role-provider"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
-                    <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1-mini"></label>
-                    <label class="wide-field"><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://你的模型服务地址/v1"></label>
-                    <div class="field-action wide-field"><button class="secondary-button role-save" type="button" data-role="fast"><i data-lucide="save" aria-hidden="true"></i><span>保存角色</span></button><span class="role-message" aria-live="polite"></span></div>
-                  </div>
+                  <div class="model-role-identity"><span class="role-icon"><i data-lucide="zap" aria-hidden="true"></i></span><div><strong>快速任务</strong><small>摘要与轻量生成</small></div></div>
+                  <label><span>服务商</span><select class="role-provider"><option value="openai">OpenAI</option><option value="openai-compatible">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="google-gemini">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="alibaba-bailian">阿里云百炼</option></select></label>
+                  <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1-mini"></label>
+                  <label><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://模型服务地址/v1"></label>
+                  <div class="model-role-action"><span class="status-label is-neutral">读取中</span><button class="icon-button compact role-save" type="button" data-role="fast" aria-label="保存快速任务角色" data-tooltip="保存角色"><i data-lucide="save" aria-hidden="true"></i></button><small class="role-message" aria-live="polite"></small></div>
                 </div>
                 <div class="model-role-row" data-role="vision">
-                  <div class="model-role-heading"><strong>视觉理解</strong><span class="status-label is-neutral">读取中</span></div>
-                  <div class="settings-fields">
-                    <label><span>服务商</span><select class="role-provider"><option>OpenAI</option><option>兼容 OpenAI 的服务</option><option>Anthropic</option><option>Google Gemini</option><option>DeepSeek</option><option>阿里云百炼</option></select></label>
-                    <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1-vision"></label>
-                    <label class="wide-field"><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://你的模型服务地址/v1"></label>
-                    <div class="field-action wide-field"><button class="secondary-button role-save" type="button" data-role="vision"><i data-lucide="save" aria-hidden="true"></i><span>保存角色</span></button><span class="role-message" aria-live="polite"></span></div>
-                  </div>
+                  <div class="model-role-identity"><span class="role-icon"><i data-lucide="scan-eye" aria-hidden="true"></i></span><div><strong>视觉理解</strong><small>图片与原页证据</small></div></div>
+                  <label><span>服务商</span><select class="role-provider"><option value="openai">OpenAI</option><option value="openai-compatible">OpenAI 兼容</option><option value="anthropic">Anthropic</option><option value="google-gemini">Google Gemini</option><option value="deepseek">DeepSeek</option><option value="alibaba-bailian">阿里云百炼</option></select></label>
+                  <label><span>模型 ID</span><input class="role-model" type="text" placeholder="例如 gpt-5.1-vision"></label>
+                  <label><span>API 地址</span><input class="role-endpoint" type="url" placeholder="https://模型服务地址/v1"></label>
+                  <div class="model-role-action"><span class="status-label is-neutral">读取中</span><button class="icon-button compact role-save" type="button" data-role="vision" aria-label="保存视觉理解角色" data-tooltip="保存角色"><i data-lucide="save" aria-hidden="true"></i></button><small class="role-message" aria-live="polite"></small></div>
                 </div>
                 <div class="model-role-row is-local" data-role="embedding">
-                  <div><strong>文本向量</strong><p class="supporting-text">使用本地 BAAI/bge-small-zh-v1.5，资料不会发送到外部 Embedding 服务。</p></div>
-                  <span class="status-label is-success">本地已启用</span>
+                  <div class="model-role-identity"><span class="role-icon"><i data-lucide="database-zap" aria-hidden="true"></i></span><div><strong>文本向量</strong><small>本地语义索引</small></div></div><span class="local-provider">本地运行</span><code>BAAI/bge-small-zh-v1.5</code><span class="local-endpoint">资料不外发</span><div class="model-role-action"><span class="status-label is-success">已启用</span></div>
                 </div>
               </div>
               <div class="generate-test">
@@ -674,6 +694,17 @@
       </main>
     </div>
   </div>
+
+  <dialog id="library-evidence-dialog" class="app-dialog evidence-dialog">
+    <div class="dialog-shell">
+      <header><div><p class="section-kicker" id="evidence-source-label">原页证据</p><h2 id="evidence-title">资料页</h2></div><button class="icon-button" type="button" data-close-dialog="#library-evidence-dialog" aria-label="关闭"><i data-lucide="x" aria-hidden="true"></i></button></header>
+      <div class="evidence-content">
+        <div class="evidence-page-frame" id="evidence-page-frame"><img id="evidence-page-image" alt="PDF 原页"><div class="evidence-overlays" id="evidence-overlays" aria-hidden="true"></div></div>
+        <p class="evidence-meta" id="evidence-meta">正在读取原页</p>
+      </div>
+      <footer><button class="secondary-button" type="button" data-close-dialog="#library-evidence-dialog">关闭</button></footer>
+    </div>
+  </dialog>
 
   <dialog id="project-dialog" class="app-dialog compact-dialog">
     <form method="dialog" id="project-form" class="dialog-shell">

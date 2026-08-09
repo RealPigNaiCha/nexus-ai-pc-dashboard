@@ -184,3 +184,33 @@ def test_chat_auto_role_records_resolved_role(tmp_path: Path) -> None:
         )
         assert [call["role"] for call in calls] == ["reasoning", "fast"]
         assert len(observed) == 2
+
+
+def test_chat_auto_role_falls_back_to_configured_reasoning_role(tmp_path: Path) -> None:
+    observed, handler = openai_handler()
+    backend = MemoryKeyring()
+    with make_client(tmp_path, backend, handler) as client:
+        client.put("/api/credentials/OpenAI", json={"api_key": "routing-secret"})
+        configured = client.put(
+            "/api/models/roles/reasoning",
+            json={
+                "provider": "OpenAI",
+                "model": "gpt-4.1",
+                "endpoint": "https://api.openai.com/v1",
+            },
+        )
+        assert configured.status_code == 200
+
+        response = client.post(
+            "/api/chat/ask",
+            json={"question": "创建一个简短任务", "role": "auto"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["role"] == "reasoning"
+        fallback = client.app.state.database.query_one(
+            "SELECT * FROM audit_events WHERE category = 'routing' AND action = 'fallback_role'"
+        )
+        assert fallback is not None
+        assert fallback["target"] == "fast->reasoning"
+        assert len(observed) == 1

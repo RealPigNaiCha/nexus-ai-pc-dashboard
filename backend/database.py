@@ -7,9 +7,11 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Sequence
 
 from .usage import estimate_cost_usd
+
+SCHEMA_VERSION = 3
 
 
 def utc_now() -> str:
@@ -35,6 +37,21 @@ def _highlight_excerpt(content: str, terms: list[str], width: int = 240) -> str:
     return highlighted
 
 
+def _decode_chunk_evidence(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    for result in results:
+        raw = result.pop("evidence_json", None)
+        result["evidence"] = None
+        if not raw:
+            continue
+        try:
+            evidence = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if isinstance(evidence, dict):
+            result["evidence"] = evidence
+    return results
+
+
 SCHEMA = """
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -56,6 +73,13 @@ CREATE TABLE IF NOT EXISTS documents (
     content_hash TEXT,
     file_size INTEGER,
     indexed_at TEXT,
+    page_count INTEGER,
+    native_page_count INTEGER,
+    ocr_page_count INTEGER,
+    unreadable_page_count INTEGER,
+    ocr_engine TEXT,
+    evidence_path TEXT,
+    extraction_version TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -67,6 +91,9 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     page_number INTEGER,
     paragraph_number INTEGER,
     content TEXT NOT NULL,
+    text_source TEXT NOT NULL DEFAULT 'native',
+    confidence REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    evidence_json TEXT,
     UNIQUE(document_id, ordinal)
 );
 
@@ -231,7 +258,11 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
     task_file TEXT,
     task_sha256 TEXT,
     handoff_requested_at TEXT,
-    last_error TEXT
+    last_error TEXT,
+    progress_percent INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100),
+    progress_note TEXT,
+    progress_updated_at TEXT,
+    conversation_session_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
@@ -300,6 +331,10 @@ CREATE INDEX IF NOT EXISTS idx_zotero_items_type ON zotero_items(item_type);
 """
 
 
+class DatabaseVersionError(RuntimeError):
+    """Raised when the database was created by a newer application version."""
+
+
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -318,9 +353,16 @@ class Database:
     def initialize(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._write_lock, self.connect() as connection:
+            current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if current_version > SCHEMA_VERSION:
+                raise DatabaseVersionError(
+                    f"Database schema version {current_version} is newer than this application supports "
+                    f"({SCHEMA_VERSION})"
+                )
             connection.executescript(SCHEMA)
             self._migrate(connection)
             self._seed(connection)
+            connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             connection.commit()
 
     def health(self) -> bool:
@@ -350,6 +392,67 @@ class Database:
         with self._write_lock, self.connect() as connection:
             connection.executemany(sql, rows)
             connection.commit()
+
+    def create_agent_task(
+        self,
+        *,
+        project: str,
+        title: str,
+        run_tests: bool = True,
+        generate_summary: bool = True,
+        allow_dependencies: bool = False,
+        conversation_session_id: str | None = None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO agent_tasks(
+                    project, title, status, run_tests, generate_summary,
+                    allow_dependencies, created_at, updated_at, conversation_session_id
+                )
+                VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project,
+                    title,
+                    int(run_tests),
+                    int(generate_summary),
+                    int(allow_dependencies),
+                    now,
+                    now,
+                    conversation_session_id,
+                ),
+            )
+            task_id = int(cursor.lastrowid)
+            row = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            connection.commit()
+            return dict(row) if row else {}
+
+    def update_agent_task_progress(
+        self,
+        task_id: int,
+        *,
+        progress_percent: int,
+        progress_note: str | None,
+        conversation_session_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        now = utc_now()
+        with self._write_lock, self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE agent_tasks
+                SET progress_percent = ?, progress_note = ?, progress_updated_at = ?,
+                    conversation_session_id = COALESCE(?, conversation_session_id), updated_at = ?
+                WHERE id = ?
+                """,
+                (progress_percent, progress_note, now, conversation_session_id, now, task_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+            row = connection.execute("SELECT * FROM agent_tasks WHERE id = ?", (task_id,)).fetchone()
+            connection.commit()
+            return dict(row) if row else None
 
     def claim_agent_handoff(self, task_id: int) -> dict[str, Any] | None:
         now = utc_now()
@@ -1028,10 +1131,18 @@ class Database:
         *,
         title: str,
         document_type: str,
+        status: str,
         source_path: str,
         content_hash: str,
         file_size: int,
-        chunks: list[tuple[int, int | None, int | None, str]],
+        chunks: Sequence[Any],
+        page_count: int = 0,
+        native_page_count: int = 0,
+        ocr_page_count: int = 0,
+        unreadable_page_count: int = 0,
+        ocr_engine: str | None = None,
+        evidence_path: str | None = None,
+        extraction_version: str | None = None,
     ) -> tuple[dict[str, Any], int, bool]:
         """Insert or replace an indexed document and its chunks atomically."""
         now = utc_now()
@@ -1040,7 +1151,11 @@ class Database:
                 "SELECT * FROM documents WHERE source_path = ?",
                 (source_path,),
             ).fetchone()
-            if existing_path and existing_path["content_hash"] == content_hash:
+            if (
+                existing_path
+                and existing_path["content_hash"] == content_hash
+                and existing_path["extraction_version"] == extraction_version
+            ):
                 chunk_count = connection.execute(
                     "SELECT COUNT(*) FROM document_chunks WHERE document_id = ?",
                     (existing_path["id"],),
@@ -1066,18 +1181,29 @@ class Database:
                 connection.execute(
                     """
                     UPDATE documents
-                    SET title = ?, document_type = ?, status = 'ready', location = ?,
-                        source_path = ?, content_hash = ?, file_size = ?, indexed_at = ?, updated_at = ?
+                    SET title = ?, document_type = ?, status = ?, location = ?,
+                        source_path = ?, content_hash = ?, file_size = ?, indexed_at = ?,
+                        page_count = ?, native_page_count = ?, ocr_page_count = ?,
+                        unreadable_page_count = ?, ocr_engine = ?, evidence_path = ?,
+                        extraction_version = ?, updated_at = ?
                     WHERE id = ?
                     """,
                     (
                         title,
                         document_type,
+                        status,
                         source_path,
                         source_path,
                         content_hash,
                         file_size,
                         now,
+                        page_count,
+                        native_page_count,
+                        ocr_page_count,
+                        unreadable_page_count,
+                        ocr_engine,
+                        evidence_path,
+                        extraction_version,
                         now,
                         document_id,
                     ),
@@ -1093,18 +1219,28 @@ class Database:
                     """
                     INSERT INTO documents(
                         title, document_type, status, location, source_path, content_hash,
-                        file_size, indexed_at, created_at, updated_at
+                        file_size, indexed_at, page_count, native_page_count, ocr_page_count,
+                        unreadable_page_count, ocr_engine, evidence_path, extraction_version,
+                        created_at, updated_at
                     )
-                    VALUES (?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         title,
                         document_type,
+                        status,
                         source_path,
                         source_path,
                         content_hash,
                         file_size,
                         now,
+                        page_count,
+                        native_page_count,
+                        ocr_page_count,
+                        unreadable_page_count,
+                        ocr_engine,
+                        evidence_path,
+                        extraction_version,
                         now,
                         now,
                     ),
@@ -1113,12 +1249,24 @@ class Database:
 
             connection.executemany(
                 """
-                INSERT INTO document_chunks(document_id, ordinal, page_number, paragraph_number, content)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO document_chunks(
+                    document_id, ordinal, page_number, paragraph_number, content,
+                    text_source, confidence, evidence_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
-                    (document_id, ordinal, page_number, paragraph_number, content)
-                    for ordinal, page_number, paragraph_number, content in chunks
+                    (
+                        document_id,
+                        chunk.ordinal,
+                        chunk.page_number,
+                        chunk.paragraph_number,
+                        chunk.content,
+                        chunk.text_source,
+                        chunk.confidence,
+                        chunk.evidence_json,
+                    )
+                    for chunk in chunks
                 ],
             )
             connection.commit()
@@ -1148,6 +1296,9 @@ class Database:
                 c.paragraph_number AS paragraph,
                 c.ordinal AS chunk_index,
                 c.content AS chunk,
+                c.text_source,
+                c.confidence,
+                c.evidence_json,
                 snippet(document_chunks_fts, 0, '<mark>', '</mark>', ' ... ', 24) AS snippet
             FROM document_chunks_fts
             JOIN document_chunks AS c ON c.id = document_chunks_fts.rowid
@@ -1158,6 +1309,7 @@ class Database:
             """,
             (match_query, limit),
         )
+        _decode_chunk_evidence(results)
         if len(results) >= limit:
             return results
 
@@ -1190,6 +1342,9 @@ class Database:
                 c.paragraph_number AS paragraph,
                 c.ordinal AS chunk_index,
                 c.content AS chunk,
+                c.text_source,
+                c.confidence,
+                c.evidence_json,
                 c.content AS snippet
             FROM document_chunks AS c
             JOIN documents AS d ON d.id = c.document_id
@@ -1199,6 +1354,7 @@ class Database:
             """,
             tuple(parameters),
         )
+        _decode_chunk_evidence(results)
         for result in results:
             result["snippet"] = _highlight_excerpt(result["chunk"], terms)
         return results
@@ -1210,10 +1366,27 @@ class Database:
             "content_hash": "TEXT",
             "file_size": "INTEGER",
             "indexed_at": "TEXT",
+            "page_count": "INTEGER",
+            "native_page_count": "INTEGER",
+            "ocr_page_count": "INTEGER",
+            "unreadable_page_count": "INTEGER",
+            "ocr_engine": "TEXT",
+            "evidence_path": "TEXT",
+            "extraction_version": "TEXT",
         }
         for name, data_type in additions.items():
             if name not in columns:
                 connection.execute(f"ALTER TABLE documents ADD COLUMN {name} {data_type}")
+
+        chunk_columns = {row["name"] for row in connection.execute("PRAGMA table_info(document_chunks)")}
+        chunk_additions = {
+            "text_source": "TEXT NOT NULL DEFAULT 'native'",
+            "confidence": "REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1))",
+            "evidence_json": "TEXT",
+        }
+        for name, definition in chunk_additions.items():
+            if name not in chunk_columns:
+                connection.execute(f"ALTER TABLE document_chunks ADD COLUMN {name} {definition}")
 
         connection.execute(
             """
@@ -1262,6 +1435,10 @@ class Database:
             "task_sha256": "TEXT",
             "handoff_requested_at": "TEXT",
             "last_error": "TEXT",
+            "progress_percent": "INTEGER NOT NULL DEFAULT 0 CHECK(progress_percent BETWEEN 0 AND 100)",
+            "progress_note": "TEXT",
+            "progress_updated_at": "TEXT",
+            "conversation_session_id": "TEXT",
         }
         for name, definition in agent_additions.items():
             if name not in agent_columns:
@@ -1307,8 +1484,6 @@ class Database:
                 ("ops.backup.enabled", "1", migration_now),
                 ("ops.backup.interval_hours", "24", migration_now),
                 ("ops.backup.keep_count", "14", migration_now),
-                ("library.auto_watch.enabled", "1", migration_now),
-                ("library.auto_watch.interval_seconds", "300", migration_now),
                 ("usage.monthly_budget_usd", "0", migration_now),
             ],
         )

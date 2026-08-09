@@ -10,19 +10,28 @@
     projectCount: 0,
     agentCount: 0,
     note: "",
-    provider: "OpenAI",
+    provider: "openai",
     endpoint: "https://api.openai.com/v1",
     dataPath: "C:\\AI-PC",
     importedFiles: [],
     projects: []
   };
   const providerDefaultEndpoints = {
-    OpenAI: "https://api.openai.com/v1",
-    Anthropic: "https://api.anthropic.com/v1",
-    "Google Gemini": "https://generativelanguage.googleapis.com/v1beta",
-    DeepSeek: "https://api.deepseek.com",
-    "阿里云百炼": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    openai: "https://api.openai.com/v1",
+    "openai-compatible": "",
+    anthropic: "https://api.anthropic.com/v1",
+    "google-gemini": "https://generativelanguage.googleapis.com/v1beta",
+    deepseek: "https://api.deepseek.com",
+    "alibaba-bailian": "https://dashscope.aliyuncs.com/compatible-mode/v1"
   };
+  const providerCatalog = [
+    { id: "openai", label: "OpenAI", description: "OpenAI 官方 API 服务。" },
+    { id: "openai-compatible", label: "OpenAI 兼容", description: "支持 OpenAI Chat Completions 协议的自定义服务。" },
+    { id: "anthropic", label: "Anthropic", description: "Anthropic Claude 官方 API 服务。" },
+    { id: "google-gemini", label: "Google Gemini", description: "Google Gemini 官方生成式语言 API。" },
+    { id: "deepseek", label: "DeepSeek", description: "DeepSeek 官方 API 服务。" },
+    { id: "alibaba-bailian", label: "阿里云百炼", description: "阿里云百炼 OpenAI 兼容模式。" }
+  ];
   const roleLabels = {
     reasoning: "深度推理",
     fast: "快速任务",
@@ -60,6 +69,9 @@
   let reviewQueue = [];
   let reviewQueueIndex = -1;
   let routingRules = [];
+  let modelRoles = [];
+  let credentialStatuses = new Map();
+  const providerEndpointDrafts = new Map();
 
   async function apiFetch(path, options = {}) {
     if (window.location.protocol === "file:") return null;
@@ -112,6 +124,7 @@
       renderOverviewTasksUnavailable();
       renderOverviewActivityUnavailable();
       if (qs("#semantic-index-state")) qs("#semantic-index-state").textContent = "服务未连接";
+      if (qs("#ocr-engine-state")) qs("#ocr-engine-state").textContent = "服务未连接";
       showAgentUnavailable("本地服务未连接");
       showToolsUnavailable("本地服务未连接");
       showChatUnavailable();
@@ -129,7 +142,10 @@
     try {
       const health = await apiFetch("/health");
       setServiceStatus(health?.status === "ok");
-      const overview = await apiFetch("/overview");
+      const [overview, settings] = await Promise.all([
+        apiFetch("/overview"),
+        apiFetch("/settings")
+      ]);
       if (overview) {
         state.projectCount = overview.research_projects ?? state.projectCount;
         state.agentCount = overview.active_agent_tasks ?? state.agentCount;
@@ -148,36 +164,37 @@
         }
         updateStorageFromApi(overview);
       }
-      const settings = await apiFetch("/settings");
       if (settings) {
-        state.provider = settings.provider || state.provider;
+        state.provider = normalizeProviderId(settings.provider || state.provider);
         state.endpoint = settings.endpoint || state.endpoint;
         state.dataPath = settings.data_path || state.dataPath;
-        if (qs("#provider-select")) qs("#provider-select").value = state.provider;
-        if (qs("#api-endpoint")) qs("#api-endpoint").value = state.endpoint;
+        providerEndpointDrafts.set(state.provider, state.endpoint);
+        selectProvider(state.provider, { rememberCurrent: false });
         if (qs("#data-path") && state.dataPath) qs("#data-path").value = state.dataPath;
       }
-      await loadLearningDashboard({ quiet: true });
-      await loadCoachReport({ quiet: true });
-      await loadCoachPlan({ quiet: true });
-      await loadDeepTutorStatus({ quiet: true });
-      await loadResearchProjects({ quiet: true });
-      await refreshCredentialStatus();
-      await loadModelRoles({ quiet: true });
-      await loadRoutingRules({ quiet: true });
-      await loadChatSetup({ quiet: true });
-      await loadUsage({ quiet: true });
-      await loadPaperQAStatus({ quiet: true });
-      await loadZoteroStatus({ quiet: true });
-      await loadOpsStatus({ quiet: true });
-      await loadBrowserStatus({ quiet: true });
-      await loadBrowserActions({ quiet: true });
-      await loadSemanticStatus();
-      await loadLibraryDocuments({ quiet: true });
-      await loadLibraryAutoStatus({ quiet: true });
-      await loadAgentData({ quiet: true });
-      await loadTools({ quiet: true });
-      await loadOverviewActivity({ quiet: true });
+      await Promise.allSettled([
+        loadLearningDashboard({ quiet: true }),
+        loadCoachReport({ quiet: true }),
+        loadCoachPlan({ quiet: true }),
+        loadDeepTutorStatus({ quiet: true }),
+        loadResearchProjects({ quiet: true }),
+        refreshCredentialStatus(),
+        loadModelRoles({ quiet: true }),
+        loadRoutingRules({ quiet: true }),
+        loadChatSetup({ quiet: true }),
+        loadUsage({ quiet: true }),
+        loadPaperQAStatus({ quiet: true }),
+        loadZoteroStatus({ quiet: true }),
+        loadOpsStatus({ quiet: true }),
+        loadBrowserStatus({ quiet: true }),
+        loadBrowserActions({ quiet: true }),
+        loadSemanticStatus(),
+        loadOcrStatus(),
+        loadLibraryDocuments({ quiet: true }),
+        loadAgentData({ quiet: true }),
+        loadTools({ quiet: true }),
+        loadOverviewActivity({ quiet: true })
+      ]);
       renderOverviewTasks();
     } catch {
       setServiceStatus(false);
@@ -545,6 +562,8 @@
     "library.import": "资料导入",
     "library.index_document": "资料索引",
     "library.reuse_document": "复用资料",
+    "library.auto_scan": "自动扫描资料",
+    "library.auto_index_document": "自动更新资料",
     "learning.create_course": "创建课程",
     "learning.create_concept": "添加知识点",
     "learning.attempt": "记录答题",
@@ -575,6 +594,7 @@
   function auditResultLabel(result) {
     if (result === "success") return '<span class="status-label is-success">完成</span>';
     if (result === "error" || result === "cancelled") return '<span class="status-label is-danger">异常</span>';
+    if (result === "partial") return '<span class="status-label is-warning">部分完成</span>';
     if (result === "path_forbidden" || result === "role_not_configured") return '<span class="status-label is-warning">被拒绝</span>';
     return '<span class="status-label is-neutral">已记录</span>';
   }
@@ -867,13 +887,9 @@
   }
 
   function setCredentialStatus(configured, message) {
-    const label = qs("#provider-state");
-    const detail = qs("#provider-message");
-    if (label) {
-      label.textContent = configured ? "已安全保存" : "未配置";
-      label.className = `status-label ${configured ? "is-success" : "is-warning"}`;
-    }
-    if (detail && message) detail.textContent = message;
+    credentialStatuses.set(selectedProviderId(), Boolean(configured));
+    renderProviderDirectory();
+    if (message && qs("#provider-message")) qs("#provider-message").textContent = message;
   }
 
   function setProviderTestStatus(ok, message) {
@@ -888,20 +904,25 @@
 
   async function refreshCredentialStatus() {
     if (!backendConnected) {
-      setCredentialStatus(false, "本地服务未连接，无法读取凭据状态");
+      const label = qs("#provider-state");
+      if (label) { label.textContent = "服务未连接"; label.className = "status-label is-danger"; }
+      if (qs("#provider-message")) qs("#provider-message").textContent = "本地服务未连接，无法读取凭据状态";
       return false;
     }
-    const provider = qs("#provider-select")?.value || state.provider;
     try {
-      const result = await apiFetch(`/credentials/${encodeURIComponent(provider)}`);
-      const configured = result?.configured === true;
-      setCredentialStatus(
-        configured,
-        configured ? "密钥已存入 Windows 凭据管理器" : "尚未为该服务商保存密钥"
+      const payload = await apiFetch("/credentials");
+      credentialStatuses = new Map(
+        (Array.isArray(payload?.providers) ? payload.providers : []).map((item) => [
+          normalizeProviderId(item.provider),
+          item.configured === true
+        ])
       );
-      return configured;
+      renderProviderDirectory();
+      return credentialStatuses.get(selectedProviderId()) === true;
     } catch {
-      setCredentialStatus(false, "暂时无法读取 Windows 凭据状态");
+      const label = qs("#provider-state");
+      if (label) { label.textContent = "读取失败"; label.className = "status-label is-danger"; }
+      if (qs("#provider-message")) qs("#provider-message").textContent = "暂时无法读取 Windows 凭据状态";
       return false;
     }
   }
@@ -918,7 +939,7 @@
       toast("本地服务未连接，密钥没有保存", "wifi-off");
       return false;
     }
-    const provider = qs("#provider-select")?.value || state.provider;
+    const provider = selectedProviderId();
     try {
       const result = await apiFetch(`/credentials/${encodeURIComponent(provider)}`, {
         method: "PUT",
@@ -930,7 +951,9 @@
       return true;
     } catch (error) {
       if (input) input.value = "";
-      setCredentialStatus(false, "凭据保存失败，请检查本地服务日志");
+      const label = qs("#provider-state");
+      if (label) { label.textContent = "保存失败"; label.className = "status-label is-danger"; }
+      if (qs("#provider-message")) qs("#provider-message").textContent = "凭据保存失败，请检查本地服务日志";
       toast(`密钥未保存：${error.message}`, "circle-alert");
       return false;
     }
@@ -968,7 +991,7 @@
     }
     if (qs("#api-key")?.value.trim() && !(await saveCredential())) return;
 
-    const provider = qs("#provider-select")?.value || state.provider;
+    const provider = selectedProviderId();
     const endpoint = endpointInput.value.trim();
     button.disabled = true;
     button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>测试中</span>';
@@ -993,27 +1016,107 @@
     }
   }
 
-  function changeModelProvider(event) {
-    const provider = event.currentTarget.value;
-    const endpoint = qs("#api-endpoint");
-    state.provider = provider;
-    if (endpoint) {
-      endpoint.value = providerDefaultEndpoints[provider] || "";
-      endpoint.placeholder = providerDefaultEndpoints[provider] || "https://你的模型服务地址/v1";
-    }
-    refreshCredentialStatus();
+  function normalizeProviderId(value) {
+    const normalized = String(value || "").trim().toLocaleLowerCase();
+    return ({
+      "openai": "openai",
+      "openai-compatible": "openai-compatible",
+      "openai compatible": "openai-compatible",
+      "兼容 openai 的服务": "openai-compatible",
+      "anthropic": "anthropic",
+      "google-gemini": "google-gemini",
+      "google gemini": "google-gemini",
+      "gemini": "google-gemini",
+      "deepseek": "deepseek",
+      "alibaba-bailian": "alibaba-bailian",
+      "alibaba bailian": "alibaba-bailian",
+      "阿里云百炼": "alibaba-bailian"
+    })[normalized] || "openai";
   }
 
-  function setRoleStatus(role, ready, detail = "") {
+  function selectedProviderId() {
+    return normalizeProviderId(qs("#provider-select")?.value || state.provider);
+  }
+
+  function providerRoleUsage(providerId) {
+    const labels = modelRoles
+      .filter((role) => !role.local_only && normalizeProviderId(role.provider) === providerId)
+      .map((role) => roleLabels[role.role] || role.role);
+    return labels.length ? labels.join("、") : "尚未用于角色";
+  }
+
+  function renderProviderDirectory() {
+    const selected = selectedProviderId();
+    const provider = providerCatalog.find((item) => item.id === selected) || providerCatalog[0];
+    const configuredCount = providerCatalog.filter((item) => credentialStatuses.get(item.id) === true).length;
+    qsa(".provider-list-item", qs("#provider-list")).forEach((button) => {
+      const id = normalizeProviderId(button.dataset.provider);
+      const configured = credentialStatuses.get(id);
+      const active = id === selected;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      const usage = qs(".provider-usage", button);
+      if (usage) usage.textContent = providerRoleUsage(id);
+      const credential = qs(".provider-credential", button);
+      if (credential) {
+        credential.textContent = configured === undefined ? "读取中" : (configured ? "已保存" : "未保存");
+        credential.className = `provider-credential ${configured === undefined ? "is-loading" : (configured ? "is-configured" : "")}`;
+      }
+    });
+    if (qs("#provider-configured-count")) qs("#provider-configured-count").textContent = `${configuredCount} / ${providerCatalog.length} 已配置`;
+    if (qs("#ai-services-state")) {
+      qs("#ai-services-state").textContent = credentialStatuses.size ? `${configuredCount} 个服务可用` : "读取中";
+      qs("#ai-services-state").className = `status-label ${configuredCount ? "is-success" : "is-neutral"}`;
+    }
+    if (qs("#provider-detail-name")) qs("#provider-detail-name").textContent = provider.label;
+    if (qs("#provider-detail-description")) qs("#provider-detail-description").textContent = provider.description;
+    if (qs("#provider-role-summary")) qs("#provider-role-summary").textContent = providerRoleUsage(selected);
+    const configured = credentialStatuses.get(selected);
+    if (qs("#provider-credential-summary")) qs("#provider-credential-summary").textContent = configured === undefined ? "正在读取" : (configured ? "已保存到 Windows 凭据管理器" : "尚未保存");
+    const label = qs("#provider-state");
+    if (label) {
+      label.textContent = configured === undefined ? "读取中" : (configured ? "已保存" : "未配置");
+      label.className = `status-label ${configured === undefined ? "is-neutral" : (configured ? "is-success" : "is-warning")}`;
+    }
+  }
+
+  function selectProvider(providerId, { rememberCurrent = true } = {}) {
+    const select = qs("#provider-select");
+    const endpoint = qs("#api-endpoint");
+    if (rememberCurrent && select?.value && endpoint) {
+      providerEndpointDrafts.set(normalizeProviderId(select.value), endpoint.value.trim());
+    }
+    const canonical = normalizeProviderId(providerId);
+    if (select) select.value = canonical;
+    state.provider = canonical;
+    const roleEndpoint = modelRoles.find((role) => normalizeProviderId(role.provider) === canonical && role.endpoint)?.endpoint;
+    const nextEndpoint = providerEndpointDrafts.get(canonical) || roleEndpoint || providerDefaultEndpoints[canonical] || "";
+    if (endpoint) {
+      endpoint.value = nextEndpoint;
+      endpoint.placeholder = providerDefaultEndpoints[canonical] || "https://你的模型服务地址/v1";
+    }
+    if (qs("#api-key")) qs("#api-key").value = "";
+    if (qs("#provider-message")) qs("#provider-message").textContent = credentialStatuses.get(canonical) ? "密钥已安全保存；如需替换可输入新密钥" : "密钥只存入 Windows 凭据管理器";
+    renderProviderDirectory();
+  }
+
+  function setRoleStatus(role, statusName, detail = "") {
     const row = qs(`.model-role-row[data-role="${role}"]`);
     if (!row) return;
     const label = row.querySelector(".status-label");
     const message = row.querySelector(".role-message");
     if (label) {
-      label.textContent = ready ? "已配置" : "未配置";
-      label.className = `status-label ${ready ? "is-success" : "is-warning"}`;
+      const statusConfig = {
+        ready: ["已就绪", "is-success"],
+        credential: ["缺少密钥", "is-warning"],
+        invalid: ["配置无效", "is-danger"],
+        saved: ["已保存", "is-success"],
+        empty: ["未配置", "is-neutral"]
+      }[statusName] || ["未配置", "is-neutral"];
+      label.textContent = statusConfig[0];
+      label.className = `status-label ${statusConfig[1]}`;
     }
-    if (message && detail) message.textContent = detail;
+    if (message) message.textContent = detail;
   }
 
   async function loadModelRoles({ quiet = false } = {}) {
@@ -1021,24 +1124,30 @@
     try {
       const payload = await apiFetch("/models/roles");
       const roles = Array.isArray(payload?.roles) ? payload.roles : [];
+      modelRoles = roles;
       for (const role of roles) {
         const row = qs(`.model-role-row[data-role="${role.role}"]`);
         if (!row || role.local_only) continue;
         const provider = qs(".role-provider", row);
         const model = qs(".role-model", row);
         const endpoint = qs(".role-endpoint", row);
-        if (provider) provider.value = role.provider || provider.value;
+        const canonical = normalizeProviderId(role.provider);
+        if (provider) provider.value = canonical;
         if (model) model.value = role.model || "";
         if (endpoint) {
-          endpoint.value = role.endpoint || providerDefaultEndpoints[role.provider] || "";
-          endpoint.placeholder = providerDefaultEndpoints[role.provider] || "https://你的模型服务地址/v1";
+          endpoint.value = role.endpoint || providerDefaultEndpoints[canonical] || "";
+          endpoint.placeholder = providerDefaultEndpoints[canonical] || "https://你的模型服务地址/v1";
         }
+        const statusName = role.ready
+          ? "ready"
+          : (!role.model ? "empty" : (role.credential_configured ? "invalid" : "credential"));
         setRoleStatus(
           role.role,
-          Boolean(role.ready),
-          role.ready ? "角色路由已就绪" : "填写模型 ID 并为该服务商保存密钥后可用"
+          statusName,
+          role.ready ? "可用于生成" : (!role.model ? "填写模型 ID" : (role.credential_configured ? "检查服务配置" : "保存对应服务商密钥"))
         );
       }
+      renderProviderDirectory();
     } catch (error) {
       if (!quiet) toast(`模型角色读取失败：${modelConnectionErrorMessage(error)}`, "circle-alert");
     }
@@ -1287,17 +1396,40 @@
       const model = data.model ? escapeHtml(data.model) : "模型";
       const sources = evidence.length
         ? `<details class="chat-sources"><summary>来源（${evidence.length}）</summary>${evidence
-            .map(
-              (item, index) =>
-                `<div class="chat-source"><strong>[${index + 1}] ${escapeHtml(item.title || "未命名资料")}</strong><span>${escapeHtml(item.source_path || "")}${escapeHtml(chatMessageLocation(item))}</span><blockquote>${escapeHtml(item.snippet || "")}</blockquote></div>`
-            )
+            .map((item, index) => buildChatSourceHtml(item, index))
             .join("")}</details>`
         : "";
       const learningHtml = buildChatLearningHtml(data.learning);
-      bubble.innerHTML = `<div class="chat-answer">${renderChatMarkdown(data.text || "")}</div><div class="chat-meta">${model}${latency}${tokens}</div>${sources}${learningHtml}`;
+      const actionsHtml = buildChatActionsHtml(data.actions);
+      bubble.innerHTML = `<div class="chat-answer">${renderChatMarkdown(data.text || "")}</div>${actionsHtml}<div class="chat-meta">${model}${latency}${tokens}</div>${sources}${learningHtml}`;
     }
     refreshIcons();
     if (container) container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }
+
+  function buildChatSourceHtml(item, index) {
+    const title = escapeHtml(item?.title || "未命名资料");
+    const snippet = escapeHtml(item?.snippet || "");
+    if (item?.source_type === "web") {
+      const url = String(item.url || "");
+      const safeUrl = /^https?:\/\//i.test(url) ? escapeHtml(url) : "";
+      const link = safeUrl
+        ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link" aria-hidden="true"></i><span>${safeUrl}</span></a>`
+        : "<span>联网来源</span>";
+      return `<div class="chat-source is-web"><strong>[${index + 1}] ${title}</strong>${link}<blockquote>${snippet}</blockquote></div>`;
+    }
+    return `<div class="chat-source"><strong>[${index + 1}] ${title}</strong><span>${escapeHtml(item?.source_path || "")}${escapeHtml(chatMessageLocation(item))}</span><blockquote>${snippet}</blockquote></div>`;
+  }
+
+  function buildChatActionsHtml(actions) {
+    const receipts = Array.isArray(actions) ? actions : [];
+    if (!receipts.length) return "";
+    return `<div class="chat-action-receipts">${receipts.map((item) => {
+      const succeeded = item?.status === "succeeded";
+      const icon = succeeded ? "circle-check" : "circle-alert";
+      const tone = succeeded ? "is-success" : "is-warning";
+      return `<div class="chat-action-receipt ${tone}"><i data-lucide="${icon}" aria-hidden="true"></i><span>${escapeHtml(item?.summary || "操作状态已更新")}</span></div>`;
+    }).join("")}</div>`;
   }
 
   function chatErrorMessage(error) {
@@ -1330,8 +1462,10 @@
   }
 
   function stripChatFooter(text) {
-    const marker = text.indexOf("\n\n---\n**本地资料引用**");
-    if (marker >= 0) return text.slice(0, marker).trimEnd();
+    const sourceMarker = text.indexOf("\n\n---\n**引用来源**");
+    if (sourceMarker >= 0) return text.slice(0, sourceMarker).trimEnd();
+    const legacyMarker = text.indexOf("\n\n---\n**本地资料引用**");
+    if (legacyMarker >= 0) return text.slice(0, legacyMarker).trimEnd();
     const looseMarker = text.lastIndexOf("\n\n---\n");
     if (looseMarker >= 0) return text.slice(0, looseMarker).trimEnd();
     return text;
@@ -1414,10 +1548,16 @@
         latency_ms: Date.now() - started,
         usage: payload.usage,
         evidence: payload.evidence,
+        actions: payload.nexus_actions,
         learning: payload.learning_state
       });
       chatHistory.push({ role: "assistant", content: answer });
       if (chatHistory.length > 40) chatHistory = chatHistory.slice(-40);
+      if ((payload.nexus_actions || []).some((item) =>
+        item?.status === "succeeded" && ["create_agent_task", "update_task_progress"].includes(item?.type)
+      )) {
+        await loadAgentTasks({ quiet: true });
+      }
       const userTurns = chatHistory.filter((item) => item.role === "user").length;
       const label = qs("#chat-session-label");
       if (label) {
@@ -1463,11 +1603,11 @@
         method: "PUT",
         body: JSON.stringify({ provider, model, endpoint })
       });
-      setRoleStatus(role, true, "角色路由已保存");
+      setRoleStatus(role, "saved", "正在检查可用状态");
       toast(`${roleLabels[role] || role}角色已保存`, "save");
       await loadModelRoles({ quiet: true });
     } catch (error) {
-      setRoleStatus(role, false, modelConnectionErrorMessage(error));
+      setRoleStatus(role, "invalid", modelConnectionErrorMessage(error));
       toast(`角色保存失败：${modelConnectionErrorMessage(error)}`, "circle-alert");
     } finally {
       button.disabled = false;
@@ -2105,7 +2245,7 @@
   }
 
   const pageNames = {
-    overview: ["工作台", "总览"],
+    overview: ["本地知识工作台", "开始"],
     chat: ["本地知识助手", "AI 对话"],
     usage: ["模型成本", "用量"],
     learning: ["个人进度", "学习"],
@@ -2125,6 +2265,7 @@
       item.classList.toggle("is-active", active);
       if (active) item.setAttribute("aria-current", "page");
       else item.removeAttribute("aria-current");
+      if (active) item.closest(".nav-disclosure")?.setAttribute("open", "");
     });
     const labels = pageNames[pageName] || ["工作台", pageName];
     qs("#page-eyebrow").textContent = labels[0];
@@ -2280,8 +2421,24 @@
   function librarySnippet(item) {
     const snippet = item.snippet || (typeof item.chunk === "string" ? item.chunk : item.content || "");
     if (snippet) return safeSnippetHtml(snippet);
-    const details = [formatFileSize(item.file_size), item.indexed_at ? "已建立索引" : ""].filter(Boolean);
+    const ocrPages = Number(item.ocr_page_count);
+    const pageCount = Number(item.page_count);
+    const ocrDetail = Number.isFinite(ocrPages) && ocrPages > 0
+      ? `OCR ${ocrPages}${Number.isFinite(pageCount) && pageCount > 0 ? ` / ${pageCount} 页` : " 页"}`
+      : "";
+    const details = [formatFileSize(item.file_size), ocrDetail, item.indexed_at ? "已建立索引" : ""].filter(Boolean);
     return escapeHtml(details.join(" · ") || "—");
+  }
+
+  function libraryPositionMarkup(item) {
+    const label = formatLibraryPosition(item);
+    const documentId = Number(item.document_id ?? item.id);
+    const page = Number(item.page ?? item.page_number);
+    if (!Number.isInteger(documentId) || documentId < 1 || !Number.isInteger(page) || page < 1) {
+      return escapeHtml(label);
+    }
+    const chunkIndex = item.chunk_index ?? item.chunk_number ?? "";
+    return `<button class="evidence-link" type="button" data-document-id="${documentId}" data-page="${page}" data-chunk-index="${escapeHtml(String(chunkIndex))}"><i data-lucide="scan-search" aria-hidden="true"></i><span>${escapeHtml(label)}</span></button>`;
   }
 
   function libraryRow(item) {
@@ -2291,10 +2448,62 @@
     return `<tr data-type="${escapeHtml(type.filter)}" data-status="${escapeHtml(status.key)}">
       <td><div class="document-name"><i data-lucide="${type.icon}" aria-hidden="true"></i><span><strong>${escapeHtml(libraryTitle(item))}</strong><small>${escapeHtml(type.label)}</small></span></div></td>
       <td class="source-path" title="${escapeHtml(sourcePath)}"><span>${escapeHtml(sourcePath || "—")}</span></td>
-      <td class="citation-position">${escapeHtml(formatLibraryPosition(item))}</td>
+      <td class="citation-position">${libraryPositionMarkup(item)}</td>
       <td class="document-snippet">${librarySnippet(item)}</td>
       <td><span class="status-label ${status.className}">${status.label}</span></td>
     </tr>`;
+  }
+
+  function findLibraryEvidenceItem(button) {
+    const documentId = Number(button.dataset.documentId);
+    const page = Number(button.dataset.page);
+    const chunkIndex = String(button.dataset.chunkIndex ?? "");
+    return libraryItems.find((item) => Number(item.document_id ?? item.id) === documentId
+      && Number(item.page ?? item.page_number) === page
+      && String(item.chunk_index ?? item.chunk_number ?? "") === chunkIndex);
+  }
+
+  function renderEvidenceOverlays(item) {
+    const overlays = qs("#evidence-overlays");
+    if (!overlays) return;
+    const regions = Array.isArray(item?.evidence?.regions) ? item.evidence.regions : [];
+    overlays.innerHTML = regions.map((region) => {
+      const bbox = Array.isArray(region?.bbox) ? region.bbox.map(Number) : [];
+      if (bbox.length !== 4 || bbox.some((value) => !Number.isFinite(value))) return "";
+      const left = Math.max(0, Math.min(1, bbox[0]));
+      const top = Math.max(0, Math.min(1, bbox[1]));
+      const right = Math.max(left, Math.min(1, bbox[2]));
+      const bottom = Math.max(top, Math.min(1, bbox[3]));
+      return `<span style="left:${(left * 100).toFixed(3)}%;top:${(top * 100).toFixed(3)}%;width:${((right - left) * 100).toFixed(3)}%;height:${((bottom - top) * 100).toFixed(3)}%"></span>`;
+    }).join("");
+  }
+
+  function openLibraryEvidence(item) {
+    const documentId = Number(item?.document_id ?? item?.id);
+    const page = Number(item?.page ?? item?.page_number);
+    if (!Number.isInteger(documentId) || documentId < 1 || !Number.isInteger(page) || page < 1) return;
+    const image = qs("#evidence-page-image");
+    const title = qs("#evidence-title");
+    const sourceLabel = qs("#evidence-source-label");
+    const meta = qs("#evidence-meta");
+    const regions = Array.isArray(item?.evidence?.regions) ? item.evidence.regions : [];
+    const confidence = Number(item?.confidence);
+    if (title) title.textContent = `${libraryTitle(item)} · 第 ${page} 页`;
+    if (sourceLabel) sourceLabel.textContent = item?.text_source === "ocr" ? "OCR 与原页证据" : "原页证据";
+    if (meta) {
+      const confidenceText = Number.isFinite(confidence) ? ` · 平均置信度 ${Math.round(confidence * 100)}%` : "";
+      meta.textContent = `第 ${page} 页${confidenceText} · ${regions.length} 个证据区域`;
+    }
+    if (qs("#evidence-overlays")) qs("#evidence-overlays").innerHTML = "";
+    if (image) {
+      image.alt = `${libraryTitle(item)} 第 ${page} 页`;
+      image.onload = () => renderEvidenceOverlays(item);
+      image.onerror = () => {
+        if (meta) meta.textContent = "原页暂时无法读取";
+      };
+      image.src = `/api/library/documents/${documentId}/pages/${page}/image`;
+    }
+    openDialog("#library-evidence-dialog");
   }
 
   function setLibraryState(kind, title = "", detail = "", { showTable = false, retry = false } = {}) {
@@ -2429,6 +2638,36 @@
     }
   }
 
+  function beginOcrProgressPolling(path, feedback) {
+    let stopped = false;
+    let polling = false;
+    const poll = async () => {
+      if (stopped || polling || !backendConnected) return;
+      polling = true;
+      try {
+        const progress = await apiFetch(`/library/ocr/progress?path=${encodeURIComponent(path)}`);
+        const processed = Number(progress?.processed_pages);
+        const total = Number(progress?.page_count);
+        if (feedback && progress?.status === "processing" && Number.isFinite(processed) && Number.isFinite(total)) {
+          const cacheLabel = progress.cached ? " · 已复用缓存" : "";
+          feedback.textContent = `正在处理 PDF：${processed} / ${total} 页${cacheLabel}`;
+        } else if (feedback && progress?.status === "completed" && Number.isFinite(total)) {
+          feedback.textContent = `PDF 解析完成：${total} 页，正在写入索引`;
+        }
+      } catch {
+        // Import remains authoritative; progress polling is best-effort only.
+      } finally {
+        polling = false;
+      }
+    };
+    const timer = window.setInterval(poll, 1200);
+    poll();
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }
+
   async function importLibraryPath(event) {
     event.preventDefault();
     const input = qs("#library-import-path");
@@ -2454,8 +2693,13 @@
       const result = await apiFetch("/library/import", { method: "POST", body: JSON.stringify({ path }) });
       const changed = result?.changed === true || result?.imported === true || result?.rebuilt === true;
       const chunkCount = Number(result?.chunks_indexed || result?.document?.chunk_count || 0);
+      const ocrPageCount = Number(result?.document?.ocr_page_count || 0);
+      const importDetails = [
+        chunkCount ? `${chunkCount} 个片段` : "",
+        ocrPageCount ? `OCR ${ocrPageCount} 页` : ""
+      ].filter(Boolean).join(" · ");
       const message = changed
-        ? `资料已导入并建立索引${chunkCount ? `（${chunkCount} 个片段）` : ""}。`
+        ? `资料已导入并建立索引${importDetails ? `（${importDetails}）` : ""}。`
         : "相同内容已存在，无需重复导入。";
       if (feedback) { feedback.textContent = message; feedback.dataset.state = "success"; }
       toast(message, changed ? "file-check-2" : "copy-check");
@@ -2471,84 +2715,30 @@
     }
   }
 
-  function renderLibraryAutoStatus(payload) {
-    const data = payload || {};
-    const enabled = Boolean(data.enabled);
-    if (qs("#library-auto-enabled")) qs("#library-auto-enabled").checked = enabled;
-    if (qs("#library-auto-interval")) qs("#library-auto-interval").value = String(Number(data.interval_seconds) || 300);
-    const state = qs("#library-auto-state");
-    if (state) {
-      state.textContent = enabled ? `已启用 · ${Number(data.interval_seconds) || 300} 秒` : "已停用";
-      state.className = `status-label ${enabled ? "is-success" : "is-neutral"}`;
-    }
-    const message = qs("#library-auto-message");
-    if (message) {
-      const summary = data.last_summary;
-      if (summary) {
-        message.textContent = `上次扫描 ${formatLearningDateTime(data.last_scan)}：新增 ${Number(summary.imported_count) || 0}、复用 ${Number(summary.reused_count) || 0}、失败 ${Number(summary.failed_count) || 0}`;
-      } else {
-        message.textContent = data.last_scan ? `上次扫描 ${formatLearningDateTime(data.last_scan)}` : "";
-      }
-    }
-  }
-
-  async function loadLibraryAutoStatus({ quiet = false } = {}) {
+  async function loadOcrStatus() {
+    const label = qs("#ocr-engine-state");
+    if (!label) return null;
     if (!backendConnected) {
-      if (qs("#library-auto-state")) { qs("#library-auto-state").textContent = "服务未连接"; qs("#library-auto-state").className = "status-label is-danger"; }
-      return false;
+      label.textContent = "服务未连接";
+      return null;
     }
     try {
-      const payload = await apiFetch("/library/auto/status");
-      renderLibraryAutoStatus(payload || {});
-      return true;
-    } catch (error) {
-      if (qs("#library-auto-state")) { qs("#library-auto-state").textContent = "读取失败"; qs("#library-auto-state").className = "status-label is-danger"; }
-      if (!quiet) toast(`自动监听状态读取失败：${error.message}`, "circle-alert");
-      return false;
-    }
-  }
-
-  async function saveLibraryAutoSettings() {
-    const enabled = qs("#library-auto-enabled")?.checked === true;
-    const interval = Number(qs("#library-auto-interval")?.value) || 300;
-    if (interval < 60 || interval > 86400) {
-      toast("扫描间隔需要在 60 到 86400 秒之间", "circle-alert");
-      return;
-    }
-    try {
-      const payload = await apiFetch("/library/auto/status", {
-        method: "PUT",
-        body: JSON.stringify({ enabled, interval_seconds: interval })
-      });
-      renderLibraryAutoStatus(payload || {});
-      toast("自动监听设置已保存", "save");
-    } catch (error) {
-      toast(`自动监听设置保存失败：${error.message}`, "circle-alert");
-    }
-  }
-
-  async function runLibraryAutoScan() {
-    const button = qs("#library-auto-scan");
-    if (button) {
-      button.disabled = true;
-      button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>扫描中…</span>';
-      refreshIcons();
-    }
-    try {
-      const payload = await apiFetch("/library/auto/scan", { method: "POST" });
-      renderLibraryAutoStatus(payload || {});
-      const summary = payload || {};
-      toast(`扫描完成：新增 ${Number(summary.imported_count) || 0}，复用 ${Number(summary.reused_count) || 0}`, "scan-line");
-      await loadLibraryDocuments({ quiet: true });
-      await loadSemanticStatus();
-    } catch (error) {
-      toast(`自动扫描失败：${error.message}`, "circle-alert");
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.innerHTML = '<i data-lucide="scan-line" aria-hidden="true"></i><span>立即扫描</span>';
-        refreshIcons();
+      const status = await apiFetch("/library/ocr/status");
+      if (status?.enabled && status?.available) {
+        label.textContent = `${status.engine || "本地 OCR"} · 可用`;
+        label.title = `版本 ${status.version || "未知"} · 本地处理`;
+      } else if (!status?.enabled) {
+        label.textContent = "已停用";
+        label.title = "PDF OCR 已通过配置停用";
+      } else {
+        label.textContent = "不可用";
+        label.title = "未安装本地 OCR 运行依赖";
       }
+      return status;
+    } catch (error) {
+      label.textContent = "状态未知";
+      label.title = error.message;
+      return null;
     }
   }
 
@@ -2860,6 +3050,7 @@
     button.innerHTML = '<i data-lucide="loader-circle" aria-hidden="true"></i><span>建立中</span>';
     if (feedback) { feedback.textContent = "正在解析文档并建立本地向量索引…"; feedback.dataset.state = "loading"; }
     refreshIcons();
+    const stopProgressPolling = beginOcrProgressPolling(path, feedback);
     try {
       const result = await apiFetch("/paperqa/index", {
         method: "POST",
@@ -2875,6 +3066,7 @@
       if (feedback) { feedback.textContent = error.message; feedback.dataset.state = "error"; }
       toast(`建立索引失败：${error.message}`, "circle-alert");
     } finally {
+      stopProgressPolling();
       button.disabled = false;
       button.innerHTML = '<i data-lucide="library-big" aria-hidden="true"></i><span>建立索引</span>';
       refreshIcons();
@@ -3108,7 +3300,11 @@
         ? `<button class="secondary-button agent-task-action" type="button" data-agent-handoff="${Number(task.id)}" ${canHandoff ? "" : "disabled"}><i data-lucide="external-link" aria-hidden="true"></i><span>${canHandoff ? "交给 Cline" : "暂不可交接"}</span></button>`
         : `<span class="status-label ${presentation.tone === "success" ? "is-success" : presentation.tone === "warning" ? "is-warning" : "is-neutral"}">${presentation.label}</span>`;
       const error = task.status === "handoff_failed" && task.last_error ? " · 可查看审计记录" : "";
-      return `<article><div class="task-state ${presentation.tone}"><i data-lucide="${presentation.icon}" aria-hidden="true"></i></div><div class="agent-task-meta"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(agentTaskMeta(task) + error)}</span></div>${action}</article>`;
+      const progress = Math.max(0, Math.min(100, Number(task.progress_percent) || 0));
+      const progressHtml = task.progress_updated_at
+        ? `<div class="agent-task-progress"><div role="progressbar" aria-label="用户报告进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progress}"><span style="width:${progress}%"></span></div><small>${progress}%${task.progress_note ? ` · ${escapeHtml(task.progress_note)}` : ""}</small></div>`
+        : "";
+      return `<article><div class="task-state ${presentation.tone}"><i data-lucide="${presentation.icon}" aria-hidden="true"></i></div><div class="agent-task-meta"><strong>${escapeHtml(task.title)}</strong><span>${escapeHtml(agentTaskMeta(task) + error)}</span>${progressHtml}</div>${action}</article>`;
     }).join("");
     refreshIcons();
   }
@@ -3236,6 +3432,19 @@
     }
   }
 
+  function launchOverviewPrompt(prompt) {
+    const question = String(prompt || "").trim();
+    if (!question) {
+      qs("#overview-prompt")?.focus();
+      return;
+    }
+    resetChatConversation();
+    showPage("chat");
+    const input = qs("#chat-input");
+    if (input) input.value = question;
+    sendChatQuestion();
+  }
+
   function bindEvents() {
     qsa(".nav-item[data-page]").forEach((button) => button.addEventListener("click", () => showPage(button.dataset.page)));
     qsa("[data-go]").forEach((button) => button.addEventListener("click", () => showPage(button.dataset.go)));
@@ -3250,6 +3459,27 @@
     });
 
     qs("#continue-setup")?.addEventListener("click", () => showPage("settings"));
+    qs("#sidebar-new-chat")?.addEventListener("click", () => resetChatConversation());
+    qs("#overview-prompt-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      launchOverviewPrompt(qs("#overview-prompt")?.value);
+    });
+    qsa("[data-overview-prompt]").forEach((button) => button.addEventListener("click", () => {
+      launchOverviewPrompt(button.dataset.overviewPrompt);
+    }));
+    qs("#overview-import")?.addEventListener("click", () => {
+      requestAnimationFrame(() => {
+        qs("#library-import-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        window.setTimeout(() => qs("#library-import-path")?.focus({ preventScroll: true }), 300);
+      });
+    });
+    qs("#overview-start-review")?.addEventListener("click", () => {
+      requestAnimationFrame(() => {
+        const startButton = qs("#start-review");
+        if (startButton && !startButton.disabled) startButton.click();
+      });
+    });
+    qs("#overview-new-research")?.addEventListener("click", () => openDialog("#project-dialog"));
     qs("#chat-new")?.addEventListener("click", () => {
       resetChatConversation();
       toast("已新建对话", "plus-square");
@@ -3307,8 +3537,6 @@
       if (button) focusLearningAttempt(button.dataset.recordConcept);
     });
     qs("#library-import-form")?.addEventListener("submit", importLibraryPath);
-    qs("#library-auto-save")?.addEventListener("click", saveLibraryAutoSettings);
-    qs("#library-auto-scan")?.addEventListener("click", runLibraryAutoScan);
     qs("#focus-import-path")?.addEventListener("click", () => {
       qs("#library-import-form")?.scrollIntoView({ behavior: "smooth", block: "center" });
       qs("#library-import-path")?.focus({ preventScroll: true });
@@ -3335,6 +3563,12 @@
       if (query) searchLibrary(query);
     }));
     ["#library-type", "#library-status"].forEach((selector) => qs(selector)?.addEventListener("change", filterLibrary));
+    qs("#library-table")?.addEventListener("click", (event) => {
+      const button = event.target.closest(".evidence-link");
+      if (!button) return;
+      const item = findLibraryEvidenceItem(button);
+      if (item) openLibraryEvidence(item);
+    });
     qs("#semantic-rebuild")?.addEventListener("click", rebuildSemanticIndex);
     qs("#library-retry")?.addEventListener("click", () => {
       if (libraryLastRequest.kind === "search") searchLibrary(libraryLastRequest.query);
@@ -3429,7 +3663,13 @@
     qs("#browser-stop")?.addEventListener("click", browserStop);
     qs("#browser-resume")?.addEventListener("click", browserResume);
 
-    qs("#provider-select")?.addEventListener("change", changeModelProvider);
+    qs("#provider-list")?.addEventListener("click", (event) => {
+      const button = event.target.closest(".provider-list-item[data-provider]");
+      if (button) selectProvider(button.dataset.provider);
+    });
+    qs("#api-endpoint")?.addEventListener("input", (event) => {
+      providerEndpointDrafts.set(selectedProviderId(), event.currentTarget.value.trim());
+    });
     qs("#refresh-tools")?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
@@ -3458,8 +3698,9 @@
     qs("#generate-test")?.addEventListener("click", generateModelText);
     bindRoleProviderChanges();
     qs("#save-settings")?.addEventListener("click", async () => {
-      state.provider = qs("#provider-select")?.value || state.provider;
+      state.provider = selectedProviderId();
       state.endpoint = qs("#api-endpoint")?.value || state.endpoint;
+      providerEndpointDrafts.set(state.provider, state.endpoint);
       state.dataPath = qs("#data-path")?.value || state.dataPath;
       const hasPendingCredential = Boolean(qs("#api-key")?.value.trim());
       saveState();
@@ -3512,11 +3753,12 @@
     chatWelcomeHtml = qs("#chat-welcome")?.outerHTML || "";
     resetChatConversation();
     clearResearchProject();
-    if (qs("#provider-select")) qs("#provider-select").value = state.provider;
-    if (qs("#api-endpoint")) qs("#api-endpoint").value = state.endpoint;
+    state.provider = normalizeProviderId(state.provider);
+    providerEndpointDrafts.set(state.provider, state.endpoint);
+    selectProvider(state.provider, { rememberCurrent: false });
     if (qs("#data-path")) qs("#data-path").value = state.dataPath;
     const today = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
-    if (qs("#today-label")) qs("#today-label").textContent = `功能概览 · ${today}`;
+    if (qs("#today-label")) qs("#today-label").textContent = `Nexus · ${today}`;
     refreshIcons();
     hydrateFromApi();
   }

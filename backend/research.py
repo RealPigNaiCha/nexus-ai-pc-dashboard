@@ -12,10 +12,12 @@ from urllib.parse import unquote
 
 import httpx
 
+from .version import APP_VERSION
+
 
 CROSSREF_WORKS_URL = "https://api.crossref.org/works"
 OPENALEX_WORKS_URL = "https://api.openalex.org/works"
-DEFAULT_USER_AGENT = "Nexus-AI-PC/0.1 (local research literature client)"
+DEFAULT_USER_AGENT = f"Nexus-AI-PC/{APP_VERSION} (local research literature client)"
 DEFAULT_TIMEOUT = httpx.Timeout(15.0, connect=5.0, read=15.0, write=10.0, pool=5.0)
 
 _DOI_PREFIX = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
@@ -103,7 +105,7 @@ class LiteratureClient:
             headers={"User-Agent": user_agent, "Accept": "application/json"},
             timeout=timeout,
             transport=transport,
-            follow_redirects=True,
+            follow_redirects=False,
         )
 
     def close(self) -> None:
@@ -166,7 +168,7 @@ class LiteratureClient:
                 f"{provider} is currently unavailable. Check the network and try again.",
             ) from error
 
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
             raise ResearchUpstreamError(
                 provider,
                 f"{provider} returned HTTP {response.status_code}. Try the search again later.",

@@ -20,5 +20,6 @@
 - Keep changes scoped and add tests proportional to risk.
 - Use the project virtual environment for Python commands.
 - Run python -m pytest after backend or shared behavior changes.
+- Run `uv run ruff check backend tests` and `uv run pyright` before handoff.
 - Run node --check app.js after JavaScript changes when Node.js is available.
 - Show the user the final Git diff, tests run, and any remaining limitations.

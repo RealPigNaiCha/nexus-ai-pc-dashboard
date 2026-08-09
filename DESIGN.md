@@ -91,6 +91,7 @@ flowchart LR
   UI["静态 Dashboard\nindex.html + app.js + styles.css"] -->|"HTTP 127.0.0.1"| API["FastAPI\nbackend.app"]
   API --> DB["SQLite + FTS5\n业务状态与词法检索"]
   API --> SEM["SemanticIndex\nQdrant + 本地 BGE"]
+  API --> OCR["RapidOCR + ONNX Runtime\n扫描页文字与证据坐标"]
   API --> KEY["Windows Credential Manager\n仅保存 API 密钥"]
   API --> META["Crossref / OpenAlex\n公共科研元数据"]
   API --> AGENT["VS Code + Cline\n显式 Agent 交接"]
@@ -104,9 +105,11 @@ flowchart LR
 
 | 模块 | 责任 | 不应承担的责任 |
 |---|---|---|
-| `backend/app.py` | 组装依赖、定义 HTTP 路由、输入校验、状态码和审计 | 解析 PDF、实现 FSRS 或直接拼 SQL 业务流程 |
+| `backend/app.py` | 组装依赖、业务路由、输入校验、状态码和审计 | 解析 PDF、实现 FSRS 或直接拼 SQL 业务流程 |
+| `backend/system_routes.py` | 健康、总览、工具注册表和审计等低耦合系统路由 | 持有业务状态或执行模型、文件和网络副作用 |
 | `backend/database.py` | SQLite schema、迁移、事务、查询和领域写入 | 调用网络、读取密钥、执行外部副作用 |
 | `backend/library.py` | 路径白名单、文件发现、PDF/Markdown/TXT 解析和分块 | 改写原始文件或绕过白名单 |
+| `backend/ocr.py` | OCR 引擎协议、RapidOCR 延迟初始化、坐标与置信度规范化 | 修改原 PDF、调用外部视觉服务或决定业务状态 |
 | `backend/semantic.py` | 本地 embedding、Qdrant 索引、语义/混合检索和降级 | 作为业务数据的唯一来源 |
 | `backend/learning.py` | FSRS 卡片、评分、掌握度和到期时间计算 | 生成没有答题证据的掌握度 |
 | `backend/research.py` | Crossref/OpenAlex 请求、规范化、去重和合并 | 写入半成品检索结果 |
@@ -125,7 +128,8 @@ flowchart LR
 ### SQLite
 
 - `backend/database.py` 顶部的 `SCHEMA` 是新数据库的基线。
-- 向后兼容变更写入 `_migrate()`，使用 `PRAGMA table_info` 判断列是否存在；不要覆盖或重建现有业务表。
+- `PRAGMA user_version` 记录当前 schema 版本；应用必须拒绝高于自身 `SCHEMA_VERSION` 的数据库。
+- 向后兼容变更写入 `_migrate()`，使用版本判断和 `PRAGMA table_info` 保持幂等；不要覆盖或重建现有业务表。
 - `documents` 和 `document_chunks` 保存资料与可引用位置；FTS5 由触发器同步。
 - `learning_*` 保存课程、知识点、前置关系、答题证据和 FSRS card JSON。
 - `research_*` 保存项目、检索运行、论文规范化记录、来源和筛选决定。
@@ -135,6 +139,8 @@ flowchart LR
 ### 资料导入与检索
 
 资料只能来自 `C:\AI-PC\data\library` 或 `C:\AI-PC\vault`。解析前必须解析真实路径并确认仍在白名单内；支持 `.pdf`、`.md`、`.markdown`、`.txt`。文件哈希用于增量更新和跨路径去重，片段更新与旧片段删除必须在同一事务中完成。
+
+PDF 解析遵循“原生文本优先、缺失页本地 OCR”的页级策略。原 PDF 是权威证据且不得改写；`data/library/parsed` 下的 PNG、页面 JSON 和 manifest 都是可重建派生数据。每个 OCR 片段保存页码、文本来源、平均置信度和归一化区域坐标，搜索结果必须能回到白名单内的原 PDF 或已校验缓存页。引擎、DPI 或解析契约变化时通过 `extraction_version` 触发重建，不能静默复用旧结果。
 
 SQLite FTS5 是关键词检索的可靠回退。语义检索不可用时，API 仍应返回明确的降级状态而不是伪造向量结果。任何引用结果都应保留文档标题、绝对来源路径、页码或段落号、片段序号和摘录。
 
@@ -169,7 +175,7 @@ SQLite FTS5 是关键词检索的可靠回退。语义检索不可用时，API �
 
 用量与预算：`model_calls` 记录 `session_id`（NextChat 通过 `X-AI-PC-Session` 头按会话记账）和按常见公开价目表估算的 `estimated_cost_usd`；`/api/usage` 汇总本月调用、Token、成本、按操作统计与最近会话小计，`PUT /api/usage/budget` 设置月度上限。所有生成类入口（chat、OpenAI 兼容、models generate、paperqa、deeptutor）在预算用尽后返回 429 并写审计，预算为 0 表示不限制。
 
-资料自动监听：服务运行期间默认每 5 分钟扫描 `data/library` 与 `vault`，对新增/修改文件执行与手动导入相同的增量索引（词法 + 语义），相同内容直接复用；`/api/library/auto/status`、`/api/library/auto/scan` 提供状态、设置和手动触发。自动扫描结果写入审计，不写入任何提示词或回答。
+资料导入只由用户主动触发：前端将允许目录内的文件或文件夹路径提交到 `POST /api/library/import`，后端执行增量解析、词法索引与语义索引，相同内容直接复用。服务不创建资料目录轮询任务，避免空闲时反复读取磁盘。
 
 ## 7. 前端约定
 
@@ -192,7 +198,9 @@ Agent 任务先写入 SQLite `queued`，用户明确交接后才通过 CAS 变�
 ```powershell
 Set-Location 'C:\AI-PC\workspaces\ai-pc-dashboard'
 uv sync --dev
-& '.\.venv\Scripts\python.exe' -m pytest
+uv run ruff check backend tests
+uv run pyright
+uv run pytest --cov=backend --cov-report=term-missing --cov-fail-under=80
 & 'C:\AI-PC\tools\nodejs\node.exe' --check app.js
 git diff --check
 ```
@@ -210,8 +218,8 @@ git diff --check
 
 ## 10. 推荐后续顺序
 
-1. 在 `model_gateway.py` 上增加受控的最小生成调用和模型角色配置；不要先接通用自动执行。
-2. 复用资料检索与 FSRS，建立学习教练的只读上下文和可解释进度报告。
-3. 接入 Zotero 只读同步，保存条目 ID、集合和附件路径，不复制凭据。
-4. 增加备份状态、磁盘空间告警和升级回滚检查。
-5. 最后再评估 MCP、浏览器和 Windows 自动化，并为每个副作用动作增加审批测试。
+1. 按资料库、学习、科研、模型、运维和自动化继续把 `backend/app.py` 拆成独立路由模块，每次只迁移一个领域并保持 API 不变。
+2. 分批清理旧模块的 Pyright 类型债务，类型门禁仅在实际达到 0 错误后扩大覆盖范围。
+3. 为正式部署补充版本化备份、schema 预检、部署记录和回滚演练。
+4. 提升 PaperQA2 执行路径覆盖率，并评估 OCR、Zotero 集合归档和双模型复核。
+5. Windows UI 自动化继续保持候选状态，先完成动作风险模型和审批测试。

@@ -1,8 +1,10 @@
 # Nexus AI-PC Dashboard 部署与运维手册
 
-Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、自动复习调度执行器（复习队列与会话）、Crossref/OpenAlex 科研检索与筛选、科研笔记、可复现检索式与证据表导出、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一多轮 AI 对话（已并入“AI 对话”页，支持来源、学习进度、证据分级与 auto 模型路由）、用量小计与月度预算、资料目录自动监听、复习提醒角标、Zotero 只读同步与附件导入、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
+Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、用户主动触发的 PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、自动复习调度执行器（复习队列与会话）、Crossref/OpenAlex 科研检索与筛选、科研笔记、可复现检索式与证据表导出、PaperQA2 论文问答（本地索引 + 带引用回答）、DeepTutor 教学与研究问答、统一多轮 AI 对话（已并入“AI 对话”页，支持来源、学习进度、证据分级与 auto 模型路由）、用量小计与月度预算、复习提醒角标、Zotero 只读同步与附件导入、VS Code + Cline 显式 Agent 交接、非敏感设置、Windows 凭据库中的 API 密钥管理、安全模型连通性测试、模型角色路由与最小生成调用、在线备份与磁盘告警、定时自动备份（可配置间隔与保留份数）和审计记录。电脑控制尚未接入执行器。新建数据库保持为空，不会自动生成虚构的学习、科研或 Agent 活动。
 
 项目当前状态、安全边界和后续优先级见 [PROJECT_STATUS.md](PROJECT_STATUS.md)。下次继续开发时应先阅读该文件，复用现有数据底座。
+
+扫描 PDF 的候选项目、许可证、真实样书基线与选型理由见 [OCR_EVALUATION.md](OCR_EVALUATION.md)。
 
 模块边界、数据流、API 约定和接手流程见 [DESIGN.md](DESIGN.md)。涉及结构迁移、模型调用或电脑自动化前，应先阅读该设计说明。
 
@@ -48,6 +50,8 @@ C:\AI-PC\
 Set-Location 'C:\AI-PC\app\dashboard'
 uv sync --dev
 ```
+
+默认环境只安装 Dashboard 正式功能和开发检查工具。JupyterLab、Pandas、Polars、SciPy 等实验分析工具属于可选 `lab` 组，需要时在开发工作区执行 `uv sync --dev --group lab`；正式服务不依赖该组。
 
 `uv` 已安装在 `%USERPROFILE%\.local\bin`，该目录也已写入用户 PATH。安装前已经打开的终端可能仍找不到命令，关闭后重新打开 PowerShell 即可。Dashboard 的启动脚本也会自动回退到 `.venv\Scripts\python.exe`；不要手工把包安装到系统 Python。
 
@@ -102,14 +106,26 @@ Invoke-RestMethod 'http://127.0.0.1:8765/api/overview'
 
 | 项目 | 当前规则 |
 |---|---|
-| PDF | `.pdf`，使用 PyMuPDF 提取已有文本层并保留页码 |
+| PDF | `.pdf`；优先提取原生文本层，扫描页自动使用本地 RapidOCR，并保留页码、置信度和证据坐标 |
 | Markdown | `.md`、`.markdown` |
 | 纯文本 | `.txt`，支持 UTF-8、UTF-8 BOM 和 GB18030 |
 | 单文件大小 | 最大 512 MiB；超过即拒绝 |
 | 目录导入 | 递归扫描，单次最多 500 个受支持文件 |
 | 暂不支持 | DOCX、EPUB、图片、音视频及其他扩展名 |
 
-扫描版 PDF 目前没有 OCR。此类文件即使能打开，也可能没有可搜索文本；先用人工抽查确认文本层，后续再接 OCRmyPDF/Tesseract 或 Docling。导入不会修改原文件。
+扫描版和混合型 PDF 会逐页判断文本层质量，只对缺少可用文本的页面运行本地 RapidOCR（ONNX Runtime CPU）。原 PDF 始终保持只读；OCR 页面图像、逐区域文本、置信度、坐标、图片哈希和引擎版本保存在 `C:\AI-PC\data\library\parsed\<哈希前缀>\<文件 SHA-256>`。派生目录可重建，不能替代原文件备份。
+
+首次处理扫描书通常需要数秒/页。每页完成后立即原子保存缓存，任务中断后重新导入会复用已验证的页面，不必从第一页开始。资料库检索结果中的页码可打开原 PDF 页面并高亮命中区域；这用于人工或视觉模型复核，不表示 OCR 文本一定正确。公式、上下标和密集表格尤其应查看原页。
+
+真实 324 页扫描教材验收中，323 页 OCR、1 页原生文本、0 页不可读，共生成 2227 个检索片段；首次处理约 29 分 27 秒，第二次完整缓存复用约 25 秒，派生证据约 94.28 MiB。区域平均置信度约 95.43%，但公式和表格仍需回到原页复核。详细数据和候选项目比较见 [OCR_EVALUATION.md](OCR_EVALUATION.md)。
+
+OCR 状态与证据图像接口：
+
+```text
+GET /api/library/ocr/status
+GET /api/library/ocr/progress?path=<允许目录内的文件或目录>
+GET /api/library/documents/{document_id}/pages/{page_number}/image
+```
 
 ### 从网页导入
 
@@ -138,7 +154,8 @@ Invoke-RestMethod `
 - 同一路径且内容未变化时直接复用，不重建片段。
 - 同一路径内容变化时，旧片段会在同一数据库事务中替换。
 - 不同路径但内容完全相同只保留一份索引。
-- 文本按段落切分，超长内容继续拆到最多约 1800 字符的片段；PDF 同时保存页码和页内段落号。
+- 解析版本变化时会重建派生片段；相同版本复用按文件哈希保存的 OCR 页面缓存。
+- 原生文本按段落切分；OCR 文字按页面阅读顺序合并为较短片段，超长内容继续拆到最多约 1800 字符；两者都保留页码和证据区域。
 
 ## 5. 词法、语义与混合检索
 
@@ -148,7 +165,7 @@ Invoke-RestMethod `
 - 中文词组和少于 3 个字符的短词自动使用 `LIKE` 子串检索，因此“极限”“连续”可直接搜索。
 - 多个查询词使用 AND 语义，即同一片段必须同时包含全部词。
 - 网页每次显示最多 20 条；API 的 `limit` 可设为 1 至 100，查询最长 500 字符。
-- 返回结果包含标题、来源路径、类型、页码、段落号、片段序号和高亮摘要，可作为引用定位依据。
+- 返回结果包含标题、来源路径、类型、页码、段落号、片段序号、高亮摘要、文本来源、OCR 置信度和证据坐标；扫描页可直接打开原页核验。
 
 本机还启用了 `BAAI/bge-small-zh-v1.5`（512 维）和嵌入式 Qdrant。模型只做本地文本向量，不是本地大语言模型，资料片段不会发送到外部 embedding 服务。网页可切换：
 
@@ -172,7 +189,7 @@ Invoke-RestMethod 'http://127.0.0.1:8765/api/library/semantic/status'
 Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/semantic/rebuild' -Method Post
 ```
 
-正式索引当前应返回 17 篇文档、251 个向量点。重建会清理旧点后从 SQLite 片段重新生成；失败时不影响 SQLite 关键词检索。
+文档和向量计数以 `/api/overview` 与 `/api/library/semantic/status` 的实时结果为准。2026-08-08 最近一次正式验收为 19 篇文档、271 个向量点；重建失败时不影响 SQLite 关键词检索。
 
 ### 5.1 学习进度
 
@@ -292,13 +309,11 @@ $body = @{ monthly_budget_usd = 5.0 } | ConvertTo-Json
 Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/usage/budget' -Method Put -ContentType 'application/json' -Body $body
 ```
 
-### 5.8 资料目录自动监听
+### 5.8 手动资料导入
 
-服务运行期间默认每 5 分钟扫描 `C:\AI-PC\data\library` 与 `C:\AI-PC\vault`，自动导入新增或修改的 PDF / Markdown / TXT，并同步更新词法与语义索引；相同内容的文件直接复用，不会重复建索引。资料库页提供开关、间隔设置和“立即扫描”，接口为：
+资料库不会在后台定时扫描磁盘。用户在资料库页输入允许目录内的文件或文件夹路径并点击“导入并索引”后，系统才会读取 PDF / Markdown / TXT、更新词法与语义索引；相同内容的文件直接复用，不会重复建索引。接口为：
 
-- `GET /api/library/auto/status`
-- `PUT /api/library/auto/status`（`{enabled, interval_seconds}`）
-- `POST /api/library/auto/scan`
+- `POST /api/library/import`（`{path}`）
 
 ### 5.9 复习提醒角标
 
@@ -333,7 +348,7 @@ alibaba-bailian
 
 接口只返回 `configured: true/false`，不会读回或显示密钥；SQLite 和审计日志只记录服务商及操作，不保存密钥。普通 `/api/settings` 接口仍会拒绝 `api_key` 字段。
 
-日常配置直接使用 Dashboard 的“设置”页：选择服务商，粘贴密钥并点击“安全保存密钥”。成功后输入框会立即清空，刷新页面也只能读取配置状态。下列 PowerShell 接口主要用于验收和删除凭据。
+日常配置直接使用 Dashboard 的“设置”页：左侧服务商列表会同时显示六个服务商的凭据状态与角色用途，右侧只编辑当前服务商的地址和密钥，下方角色路由表集中维护模型 ID。粘贴密钥并保存后输入框会立即清空，刷新页面也只读取 `configured` 状态，不会回显密钥。下列 PowerShell 接口主要用于验收和删除凭据。
 
 查看配置状态：
 
@@ -522,11 +537,16 @@ New-Item -ItemType Junction -Path 'C:\AI-PC' -Target 'E:\AI-PC'
 
 ## 10. 测试与验收命令
 
-完整测试：
+完整质量检查应在 Git 工作区执行：
 
 ```powershell
-Set-Location 'C:\AI-PC\app\dashboard'
-uv run pytest
+Set-Location 'C:\AI-PC\workspaces\ai-pc-dashboard'
+uv sync --dev --locked
+uv run ruff check backend tests
+uv run pyright
+uv run pytest --cov=backend --cov-report=term-missing --cov-fail-under=80
+& 'C:\AI-PC\tools\nodejs\node.exe' --check app.js
+git diff --check
 ```
 
 安装前已经打开的终端暂时找不到 `uv` 时，使用已有项目环境：
@@ -547,7 +567,7 @@ uv run pytest
 & '.\.venv\Scripts\python.exe' -c "import sqlite3; c=sqlite3.connect(r'C:\AI-PC\data\database\ai-pc.sqlite3'); print(c.execute('PRAGMA quick_check').fetchone()[0]); c.close()"
 ```
 
-2026-08-08 工作区完整测试为 `144 passed`（含统一多轮 AI 对话、OpenAI 兼容端点、用量预算与资料自动监听测试）；另有一条来自 FastAPI TestClient 依赖的 Starlette/httpx 弃用警告，不影响现有测试通过。
+2026-08-08 工作区 `0.7.0.dev1` 完整验收为 `160 passed`、总覆盖率 `82.05%`；Ruff、增量 Pyright、前端语法和 `git diff --check` 均通过。真实扫描教材已完成整书 OCR、缓存复用、词法/语义/混合检索与桌面/移动证据高亮验收。
 
 ## 11. 常见问题
 
@@ -558,7 +578,7 @@ uv run pytest
 | 导入返回 403 | 路径不在两个允许根目录中，先移动资料 |
 | 导入返回 400 | 文件类型不支持、路径不是文件/目录，或目录没有支持的文件 |
 | 导入返回 422 | 所有候选文件均解析失败；通过 API 文档查看错误详情 |
-| 扫描 PDF 搜不到 | 当前没有 OCR；先换文本型 PDF 或后续安装 OCR 工具 |
+| 扫描 PDF 搜不到 | 查看 `/api/library/ocr/status`，确认 OCR 已启用且 RapidOCR 可用；首次处理大书需要数秒/页 |
 | 中文结果太多 | 使用更长词组或增加第二个限定词 |
 | `uv` 命令不存在 | 关闭后重开 PowerShell；仍不可用时检查用户 PATH 是否包含 `%USERPROFILE%\.local\bin`，已部署环境也可直接用 `.venv\Scripts\python.exe` |
 
@@ -579,9 +599,8 @@ uv run pytest
 - `/api/chat/ask`
 - `/v1/chat/completions`、`/v1/models`
 - `/api/usage`、`/api/usage/budget`
-- `/api/library/auto/status`、`/api/library/auto/scan`
 - `/api/tools`、`/api/agent/status`
-- `/api/agent/tasks`、`/api/agent/tasks/{id}/handoff`
+- `/api/agent/tasks`、`/api/agent/tasks/{id}/progress`、`/api/agent/tasks/{id}/handoff`
 - `/api/settings`、`/api/audit`
 - `/api/credentials`、`/api/credentials/{provider}`
 - `/api/models/test`

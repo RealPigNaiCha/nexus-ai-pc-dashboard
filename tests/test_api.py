@@ -1,12 +1,21 @@
+import tomllib
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
+from backend.version import APP_VERSION
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 def make_client(tmp_path: Path) -> TestClient:
     return TestClient(create_app(tmp_path / "test.sqlite3", serve_static=True))
+
+
+def test_runtime_version_matches_project_metadata() -> None:
+    project = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    assert project["project"]["version"] == APP_VERSION
 
 
 def test_health_and_overview(tmp_path: Path) -> None:
@@ -15,7 +24,7 @@ def test_health_and_overview(tmp_path: Path) -> None:
         assert health.status_code == 200
         assert health.json() == {
             "status": "ok",
-            "version": "0.1.0",
+            "version": APP_VERSION,
             "database": "ok",
             "local_only": True,
         }
@@ -126,5 +135,8 @@ def test_static_dashboard(tmp_path: Path) -> None:
         response = client.get("/")
         assert response.status_code == 200
         assert "Nexus AI-PC" in response.text
+        assert 'id="provider-list"' in response.text
+        assert 'value="deepseek"' in response.text
+        assert "library-auto-details" not in response.text
         assert response.headers["cache-control"] == "no-store"
         assert client.get("/app.js").headers["cache-control"] == "no-store"

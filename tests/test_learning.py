@@ -172,7 +172,7 @@ def test_learning_review_queue_orders_due_new_and_foundation(tmp_path: Path) -> 
                 "prerequisite_ids": [foundation["id"]],
             },
         ).json()
-        new_concept = client.post(
+        client.post(
             "/api/learning/concepts",
             json={"course_id": course["id"], "name": "新概念", "description": "尚未学习"},
         ).json()

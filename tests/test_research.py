@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app import create_app
-from backend.research import LiteratureClient, normalize_doi
+from backend.research import LiteratureClient, ResearchUpstreamError, normalize_doi
 
 
 def _create_project(client: TestClient) -> int:
@@ -343,3 +344,22 @@ def test_openalex_natural_language_question_does_not_become_wildcard_query() -> 
         assert client.search("Does spaced repetition improve mathematics learning?", limit=5) == []
     finally:
         client.close()
+
+
+def test_literature_client_rejects_redirects() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(302, headers={"Location": "https://untrusted.example/works"})
+
+    client = LiteratureClient(transport=httpx.MockTransport(handler))
+    try:
+        with pytest.raises(ResearchUpstreamError) as raised:
+            client.search("retrieval practice", limit=5)
+    finally:
+        client.close()
+
+    assert raised.value.provider == "Crossref"
+    assert raised.value.detail == "Crossref returned HTTP 302. Try the search again later."
+    assert len(requests) == 1
