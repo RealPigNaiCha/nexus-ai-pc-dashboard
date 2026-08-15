@@ -1,9 +1,13 @@
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$aiPcRoot = Split-Path -Parent (Split-Path -Parent $projectRoot)
 Set-Location $projectRoot
 
+if (-not $env:AI_PC_ROOT) {
+    $env:AI_PC_ROOT = $aiPcRoot
+}
+
 if (-not $env:AI_PC_DB_PATH) {
-    $aiPcRoot = Split-Path -Parent (Split-Path -Parent $projectRoot)
     $env:AI_PC_DB_PATH = Join-Path $aiPcRoot "data\database\ai-pc.sqlite3"
 }
 

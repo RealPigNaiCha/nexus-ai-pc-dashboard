@@ -4,7 +4,7 @@
 
 - Treat this repository as the development workspace.
 - Never edit the production database, backups, logs, Zotero data, or Obsidian vault as part of a coding task.
-- Keep runtime data under C:\AI-PC\data out of Git.
+- Keep runtime data under the active installation root's `data` directory out of Git.
 
 ## Security
 

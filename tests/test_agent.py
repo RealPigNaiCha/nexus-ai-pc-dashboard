@@ -137,6 +137,8 @@ def test_handoff_writes_integrity_checked_task_and_minimal_uri(tmp_path: Path) -
         content = task_file.read_text(encoding="utf-8")
         assert title in content
         assert str(runtime.workspace_path.resolve()) in content
+        assert str(tmp_path / "data") in content
+        assert r"C:\AI-PC\data" not in content
         assert hashlib.sha256(task_file.read_bytes()).hexdigest() == payload["task_sha256"]
 
         uri = opened_uris[0]

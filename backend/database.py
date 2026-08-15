@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -1680,12 +1681,14 @@ class Database:
 
     def _seed(self, connection: sqlite3.Connection) -> None:
         now = utc_now()
-        if connection.execute("SELECT COUNT(*) FROM settings").fetchone()[0] == 0:
-            connection.executemany(
-                "INSERT INTO settings(key, value, updated_at) VALUES (?, ?, ?)",
-                [
-                    ("provider", "OpenAI", now),
-                    ("endpoint", "https://api.openai.com/v1", now),
-                    ("data_path", r"C:\AI-PC", now),
-                ],
-            )
+        default_root = os.getenv("AI_PC_ROOT")
+        if not default_root:
+            default_root = str(self.path.resolve().parent.parent.parent)
+        connection.executemany(
+            "INSERT OR IGNORE INTO settings(key, value, updated_at) VALUES (?, ?, ?)",
+            [
+                ("provider", "OpenAI", now),
+                ("endpoint", "https://api.openai.com/v1", now),
+                ("data_path", default_root, now),
+            ],
+        )

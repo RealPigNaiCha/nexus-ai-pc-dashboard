@@ -1,9 +1,13 @@
 param(
-    [string]$CodexHome = 'C:\AI-PC\data\codex'
+    [string]$CodexHome = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $source = Join-Path $PSScriptRoot 'integrations\codex\skills\nexus-ai-pc-bridge'
+$aiPcRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+if ([string]::IsNullOrWhiteSpace($CodexHome)) {
+    $CodexHome = Join-Path $aiPcRoot 'data\codex'
+}
 $skillsRoot = Join-Path $CodexHome 'skills'
 $target = Join-Path $skillsRoot 'nexus-ai-pc-bridge'
 

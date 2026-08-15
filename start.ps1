@@ -5,6 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$aiPcRoot = Split-Path -Parent (Split-Path -Parent $projectRoot)
 $baseUri = "http://127.0.0.1:8765"
 $healthUri = "$baseUri/api/health"
 
@@ -19,7 +20,6 @@ function Test-Dashboard {
 }
 
 if (-not (Test-Dashboard)) {
-    $aiPcRoot = Split-Path -Parent (Split-Path -Parent $projectRoot)
     $logDir = Join-Path $aiPcRoot "logs"
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 
@@ -40,9 +40,9 @@ if (-not (Test-Dashboard)) {
 if (-not (Test-Dashboard)) {
     $listener = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($listener) {
-        throw "端口 8765 已被进程 $($listener.OwningProcess) 占用，但健康检查未通过。请先停止旧服务或检查该进程，再重新启动。日志：C:\AI-PC\logs\dashboard.stderr.log"
+        throw "端口 8765 已被进程 $($listener.OwningProcess) 占用，但健康检查未通过。请先停止旧服务或检查该进程，再重新启动。日志：$(Join-Path $aiPcRoot 'logs\dashboard.stderr.log')"
     }
-    throw "AI-PC Dashboard 未在 120 秒内通过健康检查。请查看日志：C:\AI-PC\logs\dashboard.stderr.log"
+    throw "AI-PC Dashboard 未在 120 秒内通过健康检查。请查看日志：$(Join-Path $aiPcRoot 'logs\dashboard.stderr.log')"
 }
 
 if (-not $NoBrowser) {

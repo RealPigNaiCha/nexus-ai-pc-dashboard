@@ -27,4 +27,5 @@ else {
     Write-Output "Auto-start is not enabled."
 }
 
-Write-Output "Daily start: double-click C:\AI-PC\start-ai-pc.bat or run app\dashboard\start.ps1."
+$aiPcRoot = Split-Path -Parent (Split-Path -Parent $projectRoot)
+Write-Output "Daily start: double-click $(Join-Path $aiPcRoot 'start-ai-pc.bat') or run $startScript."

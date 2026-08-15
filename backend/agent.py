@@ -175,8 +175,7 @@ class AgentHandoff:
             raise AgentHandoffError("Visual Studio Code executable is invalid")
         return code
 
-    @staticmethod
-    def _task_document(task: Mapping[str, object], workspace: Path) -> str:
+    def _task_document(self, task: Mapping[str, object], workspace: Path) -> str:
         run_tests = bool(task.get("run_tests"))
         generate_summary = bool(task.get("generate_summary"))
         allow_dependencies = bool(task.get("allow_dependencies"))
@@ -185,6 +184,7 @@ class AgentHandoff:
             if allow_dependencies
             else "不要安装或升级依赖；如确有必要，先说明原因并等待用户修改任务设置。"
         )
+        protected_root = self.allowed_workspace_root.parent
         return f"""# AI-PC 编程任务 #{int(task['id'])}
 
 - 项目：{task['project']}
@@ -199,7 +199,7 @@ class AgentHandoff:
 ## 执行约束
 
 1. 先读取工作区中的 AGENTS.md 和与任务直接相关的文件。
-2. 只能在上述工作目录内修改源码；不要写入 C:\\AI-PC\\data、备份、日志或正式数据库。
+2. 只能在上述工作目录内修改源码；不要写入 {protected_root / 'data'}、{protected_root / 'backups'}、{protected_root / 'logs'} 或正式数据库。
 3. 不要读取、输出或持久化 API 密钥、令牌、Cookie 或 Windows Credential Manager 内容。
 4. 修改前检查现状，保持变更范围与任务一致，不撤销用户已有修改。
 5. {"完成后运行相关测试并记录结果。" if run_tests else "只有用户明确要求时才运行测试。"}

@@ -386,10 +386,14 @@ def create_app(
     credential_store = ApiCredentialStore(credential_backend)
     model_gateway = ModelGateway(credential_store, transport=model_transport)
     storage_root = db_path.parent if database_path is not None else Path(os.getenv("AI_PC_ROOT", r"C:\AI-PC"))
+    default_library_roots = (
+        storage_root / "data" / "library",
+        storage_root / "vault",
+    )
     library_roots = tuple(
         allowed_library_roots
         if allowed_library_roots is not None
-        else (Path(r"C:\AI-PC\data\library"), Path(r"C:\AI-PC\vault"))
+        else default_library_roots
     )
     index_root = Path(os.getenv("AI_PC_INDEX_PATH", str(storage_root / "data" / "index")))
     evidence_root = library_evidence_root or Path(
@@ -434,6 +438,8 @@ def create_app(
     active_deeptutor_service = deeptutor_service or DeepTutorService(
         database=database,
         credential_store=credential_store,
+        root=Path(os.getenv("AI_PC_DEEPTUTOR_ROOT", str(storage_root / "tools" / "deeptutor"))),
+        home=Path(os.getenv("AI_PC_DEEPTUTOR_HOME", str(storage_root / "data" / "deeptutor"))),
         auto_bootstrap=database_path is None,
     )
     active_web_search_service = web_search_service or WebSearchService()

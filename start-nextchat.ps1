@@ -11,6 +11,9 @@ $baseUri = "http://127.0.0.1:3000"
 if (Get-Command node -ErrorAction SilentlyContinue) {
     $node = (Get-Command node).Source
 }
+elseif (Test-Path -LiteralPath (Join-Path $aiPcRoot "tools\nodejs\node.exe")) {
+    $node = Join-Path $aiPcRoot "tools\nodejs\node.exe"
+}
 else {
     $node = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
 }
