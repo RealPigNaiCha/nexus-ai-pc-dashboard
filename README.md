@@ -1,4 +1,99 @@
-# Nexus AI-PC Dashboard 部署与运维手册
+<div align="center">
+
+# 🧠 Nexus AI-PC Dashboard
+
+**把本地资料库、学习计划、科研检索和多模型 AI 协作收进一个只属于你的 Windows 工作台。**
+
+[![Release](https://img.shields.io/badge/release-v0.9.0--dev.2--portable.1-7c3aed?style=for-the-badge)](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.1)
+[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.1)
+
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Tests](https://img.shields.io/badge/tests-185%20passed-2ea44f?style=flat-square)](tests)
+[![Coverage](https://img.shields.io/badge/coverage-81.69%25-2ea44f?style=flat-square)](tests)
+[![Local first](https://img.shields.io/badge/privacy-local--first-f97316?style=flat-square)](packaging/windows/package/docs/PRIVACY.md)
+
+### [⬇️ 下载 Windows x64 朋友试用版](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.1/Nexus-AI-PC-0.9.0.dev2-portable.1-Windows-x64.zip)
+
+[查看版本说明](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.1) · [下载安装说明](packaging/windows/package/docs/INSTALLATION.md) · [使用手册](packaging/windows/package/docs/USER_GUIDE.md) · [隐私说明](packaging/windows/package/docs/PRIVACY.md)
+
+</div>
+
+> [!IMPORTANT]
+> 当前版本是面向朋友试用的 **预发布版本**。请勿直接在压缩包预览窗口中运行安装器；首次安装需要联网下载依赖和本地模型。
+
+## 三步开始使用
+
+1. 下载 [Windows ZIP 安装包](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.1/Nexus-AI-PC-0.9.0.dev2-portable.1-Windows-x64.zip) 和 [SHA-256 校验文件](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.1/Nexus-AI-PC-0.9.0.dev2-portable.1-Windows-x64.sha256.txt)。
+2. 完整解压后，双击 `one-click-install.bat` 或 `一键安装.bat`。
+3. 等待健康检查通过，浏览器会自动打开 `http://127.0.0.1:8765`。
+
+默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。支持 64 位 Windows 10/11，建议预留至少 5 GiB 磁盘空间；首次安装通常需要 10–30 分钟。
+
+```text
+SHA-256
+49D3475D8D9F86C6BC7D0BD0233905A9008C47E6DEE999517CC23F56217D25F7
+```
+
+## 它能做什么
+
+| 能力 | 当前实现 |
+|---|---|
+| 📚 本地资料库 | 导入 PDF、Markdown、TXT；支持扫描 PDF OCR、关键词/语义/混合检索和原页证据核对 |
+| 💬 AI 对话 | 结合本地资料与学习状态回答问题，保留来源引用，并支持 fast / reasoning / auto 模型路由 |
+| 🧭 学习管理 | 课程、知识点、答题证据、FSRS 复习队列、掌握度更新和可解释学习教练 |
+| 🔬 科研工作流 | Crossref / OpenAlex 检索、筛选记录、证据表导出及 PaperQA2 论文问答 |
+| 🔐 本地优先 | 服务仅监听 `127.0.0.1`；资料与索引保存在本机，API 密钥交由 Windows Credential Manager 保存 |
+| 🛠️ 可维护性 | 在线 SQLite 备份、审计记录、用量预算、CLI / MCP / Codex 桥梁和可控浏览器动作 |
+
+## 这次试用包包含什么
+
+- Windows 一键安装、完整性校验、更新和卸载脚本。
+- Dashboard 核心应用、锁定依赖、Python/uv 引导和本地中文向量模型预加载流程。
+- 中文安装说明、用户手册、隐私说明及第三方许可清单。
+- 已修复任意安装目录、新数据库初始设置缺失、启动脚本和工具路径写死等问题。
+
+DeepTutor、NextChat、Codex CLI、Obsidian、Zotero、VS Code 和 Cline 不随本试用包安装，也不是核心 Dashboard 启动的必要条件。其中 DeepTutor 与 NextChat 因当前第三方依赖仍有待上游处理的安全通告，本次没有打包。
+
+## 验证状态
+
+- `185 passed`
+- 测试覆盖率 `81.69%`
+- Ruff、Pyright、Node 语法、锁文件与依赖一致性检查通过
+- 核心运行环境已知漏洞审计结果为 `0`
+- 安装包包含 104 个清单文件，隐私扫描通过
+
+## 文档导航
+
+| 文档 | 用途 |
+|---|---|
+| [安装说明](packaging/windows/package/docs/INSTALLATION.md) | 系统要求、最快安装、自定义目录、更新与卸载 |
+| [用户手册](packaging/windows/package/docs/USER_GUIDE.md) | 首次启动、资料导入、模型配置和常见操作 |
+| [隐私说明](packaging/windows/package/docs/PRIVACY.md) | 本地数据、联网边界、凭据与日志策略 |
+| [第三方许可](packaging/windows/package/docs/THIRD_PARTY_NOTICES.md) | 随包组件与许可证信息 |
+| [项目状态](PROJECT_STATUS.md) | 当前能力、安全边界和后续优先级 |
+| [系统设计](DESIGN.md) | 模块边界、数据流、API 约定和开发接手说明 |
+| [Windows 打包说明](packaging/windows/README.md) | 构建、验证和发布便携安装包 |
+
+## 本地开发
+
+```powershell
+git clone https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard.git
+Set-Location nexus-ai-pc-dashboard
+uv sync --dev --locked
+uv run pytest
+uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765
+```
+
+项目要求 Python 3.12+。提交前请运行 Ruff、Pyright、pytest、Node 语法检查和 `git diff --check`；完整命令及开发环境说明见下方手册。
+
+---
+
+<details>
+<summary><strong>展开：开发工作区的完整部署与运维手册</strong></summary>
+
+> 下面记录开发工作区和可选集成的完整运维细节，其中部分路径与附加工具不属于便携试用包。普通试用者优先阅读上方安装说明与用户手册。
+
+## Nexus AI-PC Dashboard 部署与运维手册
 
 Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用。当前可用的真实功能包括：本地 Dashboard、用户主动触发的 PDF/Markdown/TXT 导入、SQLite 词法检索、本地 BGE + Qdrant 语义/混合检索、FSRS 学习进度、可解释学习教练报告、自动复习调度执行器、Crossref/OpenAlex 科研检索、科研证据导出、PaperQA2、DeepTutor、统一多轮 AI 对话、隐私感知的主动联网查证、fast 整理 + reasoning 审阅的多模型协作、版本化任务信封与结果回写、Codex/CLI/MCP 桥梁、受控改进提案、用量与预算、Zotero 只读同步、VS Code + Cline 显式交接、Windows 凭据库、在线备份和审计。电脑控制尚未接入 Windows 执行器。新建数据库保持为空，不会自动生成虚构活动。
 
@@ -10,7 +105,7 @@ Nexus AI-PC Dashboard 是只监听本机回环地址的 FastAPI + SQLite 应用�
 
 产品方向是“图书馆 + 调度中心”：资料、实验和学习证据长期沉淀在本地，Dashboard 连接 Codex、CLI、skills、MCP 和多种模型，但不要求用户放弃更成熟的执行器，也不把长期知识绑定到单一聊天窗口。
 
-普通用户的日常使用说明见 [AI-PC 使用说明](../../docs/AI-PC-使用说明.md)：包含页面导览、首次配置模型、资料导入、学习流程、Zotero 同步、备份和常见问题。
+普通用户的日常使用说明见 [便携版用户手册](packaging/windows/package/docs/USER_GUIDE.md)：包含首次启动、页面导览、模型配置、资料导入和常见问题。
 
 正式部署目录为 `C:\AI-PC\app\dashboard`，访问地址为 `http://127.0.0.1:8765`。直接双击 `index.html` 只会进入演示模式，不能访问本地数据库或导入文件。
 
@@ -676,3 +771,5 @@ uv sync --dev
 ```
 
 设置接口有意拒绝 `api_key` 等额外字段。密钥只通过凭据接口写入 Windows Credential Manager，不能写入源码、Markdown、日志或 SQLite 设置表。
+
+</details>
