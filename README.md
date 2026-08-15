@@ -29,6 +29,16 @@
 
 默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。支持 64 位 Windows 10/11，建议预留至少 5 GiB 磁盘空间；首次安装通常需要 10–30 分钟。
 
+### 让 Codex 自动安装
+
+已安装 Codex 的用户可以直接把下面这句话发给它：
+
+```text
+按照 https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard 中的 prompts/install-with-codex.md 帮我安装
+```
+
+Codex 会按照 [自动安装任务](prompts/install-with-codex.md) 下载当前 Windows Release、核对文件大小与 SHA-256、运行安装器并验证本地服务。它仍会遵守所在环境的权限确认与安全规则。
+
 ```text
 SHA-256
 49D3475D8D9F86C6BC7D0BD0233905A9008C47E6DEE999517CC23F56217D25F7
