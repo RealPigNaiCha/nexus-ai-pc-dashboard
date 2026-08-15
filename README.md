@@ -74,6 +74,29 @@ DeepTutor、NextChat、Codex CLI、Obsidian、Zotero、VS Code 和 Cline 不随�
 | [系统设计](DESIGN.md) | 模块边界、数据流、API 约定和开发接手说明 |
 | [Windows 打包说明](packaging/windows/README.md) | 构建、验证和发布便携安装包 |
 
+## 贡献者
+
+<table>
+  <tr>
+    <td align="center" width="180">
+      <a href="https://github.com/RealPigNaiCha">
+        <img src="https://github.com/RealPigNaiCha.png?size=96" width="80" alt="RealPigNaiCha" /><br />
+        <strong>@RealPigNaiCha</strong>
+      </a>
+    </td>
+    <td>项目发起、产品方向、功能决策、实际使用反馈与发布。</td>
+  </tr>
+  <tr>
+    <td align="center" width="180">
+      <span aria-label="AI contributor">🤖</span><br />
+      <strong>OpenAI Codex（GPT）</strong>
+    </td>
+    <td>代码检查、问题修复、测试验证、Windows 便携包、发布流程与文档整理。</td>
+  </tr>
+</table>
+
+这个项目采用“人类负责目标与判断，AI 协助实现与验证”的协作方式。所有发布决定均由项目所有者确认。
+
 ## 本地开发
 
 ```powershell
