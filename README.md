@@ -4,30 +4,30 @@
 
 **把本地资料库、学习计划、科研检索和多模型 AI 协作收进一个只属于你的 Windows 工作台。**
 
-[![Release](https://img.shields.io/badge/release-v0.9.0--dev.2--portable.1-7c3aed?style=for-the-badge)](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.1)
-[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.1)
+[![Release](https://img.shields.io/badge/release-v0.9.0--dev.2--portable.2-7c3aed?style=for-the-badge)](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.2)
+[![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.2)
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
-[![Tests](https://img.shields.io/badge/tests-185%20passed-2ea44f?style=flat-square)](tests)
-[![Coverage](https://img.shields.io/badge/coverage-81.69%25-2ea44f?style=flat-square)](tests)
+[![Tests](https://img.shields.io/badge/tests-186%20passed-2ea44f?style=flat-square)](tests)
+[![Coverage](https://img.shields.io/badge/coverage-82%25-2ea44f?style=flat-square)](tests)
 [![Local first](https://img.shields.io/badge/privacy-local--first-f97316?style=flat-square)](packaging/windows/package/docs/PRIVACY.md)
 
-### [⬇️ 下载 Windows x64 朋友试用版](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.1/Nexus-AI-PC-0.9.0.dev2-portable.1-Windows-x64.zip)
+### [⬇️ 下载 Windows x64 完整版](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.2/Nexus-AI-PC-0.9.0.dev2-portable.2-Windows-x64.zip)
 
-[查看版本说明](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.1) · [下载安装说明](packaging/windows/package/docs/INSTALLATION.md) · [使用手册](packaging/windows/package/docs/USER_GUIDE.md) · [隐私说明](packaging/windows/package/docs/PRIVACY.md)
+[查看版本说明](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/tag/v0.9.0-dev.2-portable.2) · [下载安装说明](packaging/windows/package/docs/INSTALLATION.md) · [使用手册](packaging/windows/package/docs/USER_GUIDE.md) · [隐私说明](packaging/windows/package/docs/PRIVACY.md)
 
 </div>
 
 > [!IMPORTANT]
-> 当前版本是面向朋友试用的 **预发布版本**。请勿直接在压缩包预览窗口中运行安装器；首次安装需要联网下载依赖和本地模型。
+> 当前版本是面向朋友试用的 **预发布完整版**。请勿直接在压缩包预览窗口中运行安装器；首次安装需要联网下载依赖、本地模型和 DeepTutor CLI。
 
 ## 三步开始使用
 
-1. 下载 [Windows ZIP 安装包](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.1/Nexus-AI-PC-0.9.0.dev2-portable.1-Windows-x64.zip) 和 [SHA-256 校验文件](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.1/Nexus-AI-PC-0.9.0.dev2-portable.1-Windows-x64.sha256.txt)。
+1. 下载 [Windows ZIP 安装包](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.2/Nexus-AI-PC-0.9.0.dev2-portable.2-Windows-x64.zip) 和 [SHA-256 校验文件](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.2/Nexus-AI-PC-0.9.0.dev2-portable.2-Windows-x64.sha256.txt)。
 2. 完整解压后，双击 `one-click-install.bat` 或 `一键安装.bat`。
 3. 等待健康检查通过，浏览器会自动打开 `http://127.0.0.1:8765`。
 
-默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。支持 64 位 Windows 10/11，建议预留至少 5 GiB 磁盘空间；首次安装通常需要 10–30 分钟。
+默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。支持 64 位 Windows 10/11，建议预留至少 8 GiB 磁盘空间；首次安装通常需要 10–30 分钟。完整版自动部署 DeepTutor 前需要先安装 Git for Windows。
 
 ### 让 Codex 自动安装
 
@@ -41,7 +41,7 @@ Codex 会按照 [自动安装任务](prompts/install-with-codex.md) 下载当前
 
 ```text
 SHA-256
-49D3475D8D9F86C6BC7D0BD0233905A9008C47E6DEE999517CC23F56217D25F7
+72C9A391889CD39723FE639681C5A8D03CE5D1F70ABCA9E4B20BA9CC76DEB21D
 ```
 
 ## 它能做什么
@@ -55,22 +55,39 @@ SHA-256
 | 🔐 本地优先 | 服务仅监听 `127.0.0.1`；资料与索引保存在本机，API 密钥交由 Windows Credential Manager 保存 |
 | 🛠️ 可维护性 | 在线 SQLite 备份、审计记录、用量预算、CLI / MCP / Codex 桥梁和可控浏览器动作 |
 
-## 这次试用包包含什么
+## 这次完整版包含什么
 
 - Windows 一键安装、完整性校验、更新和卸载脚本。
 - Dashboard 核心应用、锁定依赖、Python/uv 引导和本地中文向量模型预加载流程。
 - 中文安装说明、用户手册、隐私说明及第三方许可清单。
 - 已修复任意安装目录、新数据库初始设置缺失、启动脚本和工具路径写死等问题。
 
-DeepTutor、NextChat、Codex CLI、Obsidian、Zotero、VS Code 和 Cline 不随本试用包安装，也不是核心 Dashboard 启动的必要条件。其中 DeepTutor 与 NextChat 因当前第三方依赖仍有待上游处理的安全通告，本次没有打包。
+完整版安装器会从 [DeepTutor 官方仓库](https://github.com/HKUDS/DeepTutor) 的固定提交 `37c3db6df7e886aee4f61c97ec5e618b8ab379e8` 部署 v1.5.9 CLI，安装完成后删除临时源码，不把对方仓库打进本项目压缩包。脚本只安装 Dashboard 需要的 CLI 运行依赖，不安装 DeepTutor 可选 Web Server 依赖树。
+
+### 完整工作流的手动 App 清单
+
+安装器不会静默安装带有独立许可、登录或系统级集成的桌面 App。需要哪项能力，再从官方来源手动安装：
+
+| App | 用途 | 安装方式 |
+|---|---|---|
+| [Git for Windows](https://git-scm.com/download/win) | DeepTutor 自动部署的前置条件 | **完整版必装** |
+| [Codex CLI](https://developers.openai.com/codex/cli/) | 让 Codex 按 `prompts/install-with-codex.md` 自动安装和检查 | 使用 Codex 工作流时安装 |
+| [Visual Studio Code](https://code.visualstudio.com/download) | 编程、工作区浏览和任务交接 | 编程工作流可选 |
+| [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) | VS Code 内的 Agent 执行器 | 与 VS Code 搭配时可选 |
+| [Obsidian](https://obsidian.md/download) | 打开和编辑 `vault` 知识库 | 笔记工作流可选 |
+| [Zotero](https://www.zotero.org/download/) | 文献管理和只读同步 | 科研工作流可选 |
+| [Node.js LTS](https://nodejs.org/en/download/) | 运行可选 NextChat Web UI | 使用 NextChat 时安装 |
+| [NextChat](https://github.com/ChatGPTNextWeb/NextChat) | 独立的兼容对话 Web UI | 可选，当前需手动部署 |
+
+除 Git for Windows 外，上表中的 App 都不影响 Dashboard 核心启动。API 密钥仍需用户在设置页手动配置并保存到 Windows Credential Manager。
 
 ## 验证状态
 
-- `185 passed`
-- 测试覆盖率 `81.69%`
+- `186 passed`
+- 测试覆盖率 `82%`
 - Ruff、Pyright、Node 语法、锁文件与依赖一致性检查通过
 - 核心运行环境已知漏洞审计结果为 `0`
-- 安装包包含 104 个清单文件，隐私扫描通过
+- 安装包包含 105 个清单文件，隐私扫描通过
 
 ## 文档导航
 
@@ -347,7 +364,7 @@ Invoke-RestMethod -Uri 'http://127.0.0.1:8765/api/library/semantic/rebuild' -Met
 
 ### 5.4 DeepTutor 教学与研究问答
 
-DeepTutor 是独立安装的教学能力执行器（当前 v1.5.9），通过 Dashboard 的适配器调用，不运行交互式 `deeptutor init` 向导：
+DeepTutor 是由完整版安装器部署的独立教学能力执行器（当前 v1.5.9），通过 Dashboard 的适配器调用，不运行交互式 `deeptutor init` 向导：
 
 - `GET /api/deeptutor/status`：报告安装状态、版本、工作区和 `reasoning` / `fast` 模型角色是否可用（只返回配置状态，不返回密钥）。
 - `POST /api/deeptutor/run`：一次调用一个能力，支持 `chat`（自由对话）、`deep_solve`（深度解题）、`deep_question`（生成题目）和 `deep_research`（深度研究）；语言支持 `zh` / `en`。
@@ -355,7 +372,7 @@ DeepTutor 是独立安装的教学能力执行器（当前 v1.5.9），通过 Da
 - 密钥只在单次 CLI 子进程运行期间写入 `C:\AI-PC\data\deeptutor\data\user\settings\model_catalog.json`，调用结束后立即还原无密钥基线；密钥不进入参数、日志、SQLite、审计或持久化配置。
 - 每次调用写入 `model_calls`（服务商、模型、角色、耗时、token、错误码）和 `audit_events`；提示词正文不记录。
 - 工作区首次使用时自动初始化非敏感默认设置；不创建长期密钥配置。
-- DeepTutor 的 `.venv-cli` 已补充 `deeptutor run` 需要的 server 依赖（fastapi、uvicorn、pocketbase 等）；换机器或重建环境后需要重新安装。
+- 完整版安装器创建独立的 `tools\deeptutor\.venv-cli`，仅安装 Dashboard 调用 `deeptutor run` 所需的 CLI 运行依赖；不会安装可选 Web Server 的认证栈。换机器或重建环境后，重新运行完整版安装器即可从同一固定提交恢复。
 
 PowerShell 调用示例：
 
@@ -408,7 +425,7 @@ Invoke-RestMethod `
 
 “多轮对话”已经合并进侧边栏原有的“AI 对话”页，界面与 Dashboard 完全一致：同一个气泡样式、来源核对、学习进度和会话小计。页面顶部提供“新建对话”按钮，每次提问会携带完整历史记录走 `POST /v1/chat/completions`（OpenAI 兼容、支持 `scope`），并按会话记录用量。
 
-同时保留了可选的 [NextChat](https://github.com/ChatGPTNextWeb/NextChat)（MIT License）独立服务：`http://127.0.0.1:3000` 仍可访问，适合需要更丰富设置的场景，但不再作为 Dashboard 的独立导航入口。模型密钥仍只在本机服务调用瞬间从 Windows Credential Manager 读取。
+同时保留了可选的 [NextChat](https://github.com/ChatGPTNextWeb/NextChat)（MIT License）独立服务设计：它不属于本发行包，需要用户按官方仓库说明手动部署并自行安装 Node.js LTS。部署后可使用 `http://127.0.0.1:3000`，但它不作为 Dashboard 的独立导航入口。模型密钥仍只在本机服务调用瞬间从 Windows Credential Manager 读取。
 
 快速启动（可选）：
 
@@ -423,7 +440,7 @@ Set-Location 'C:\AI-PC\app\dashboard'
 - `GET /v1/models`：返回当前可用的 `reasoning` / `fast` 角色与实际模型名。
 - `POST /v1/chat/completions`：接受标准 `messages[]`、`model`、`stream`、`max_tokens`、`temperature`；支持流式 SSE。最近一条用户消息会先检索本地资料与学习进度，多轮历史拼入提示词，回答末尾附带本地资料引用列表。
 
-每次调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`）。NextChat 源码与构建产物位于 `C:\AI-PC\tools\nextchat`，正式环境需要 Node.js LTS；当前部署脚本会优先使用系统 `node`，找不到时回退到 Codex 自带运行时。
+每次调用写入 `model_calls`（operation=`openai_compat_chat`、source=`nextchat`）与审计（`chat/openai_completions`）。开发工作区可以把 NextChat 放在 `C:\AI-PC\tools\nextchat`；朋友安装包不携带该源码，正式使用前请按官方说明单独部署并准备 Node.js LTS。
 
 ### 5.7 用量小计与月度预算
 

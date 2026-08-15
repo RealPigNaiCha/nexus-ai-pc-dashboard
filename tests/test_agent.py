@@ -292,6 +292,21 @@ def test_tool_registry_detects_installed_external_projects(tmp_path: Path) -> No
     assert tools["zotero"]["version"] == "9.0.6"
 
 
+def test_tool_registry_accepts_non_editable_deeptutor_runtime(tmp_path: Path) -> None:
+    runtime, _, _ = make_runtime(tmp_path)
+    deeptutor_python = tmp_path / "tools" / "deeptutor" / ".venv-cli" / "Scripts" / "python.exe"
+    deeptutor_python.parent.mkdir(parents=True)
+    deeptutor_python.write_bytes(b"python")
+
+    registry = ToolRegistry(tmp_path, runtime)
+    tools = {item["id"]: item for item in registry.list_tools("0.1.0")}
+    deeptutor = tools["deeptutor"]
+
+    assert deeptutor["installed"] is True
+    assert deeptutor["status"] == "ready"
+    assert deeptutor["integration"] == "active"
+
+
 def test_agent_task_migration_preserves_legacy_rows(tmp_path: Path) -> None:
     database_path = tmp_path / "legacy.sqlite3"
     with sqlite3.connect(database_path) as connection:

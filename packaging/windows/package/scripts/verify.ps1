@@ -16,6 +16,22 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "Python environment is missing: $python"
 }
 
+$installMarker = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
+if ([bool]$installMarker.deeptutor) {
+    $deeptutorPython = Join-Path $InstallRoot "tools\deeptutor\.venv-cli\Scripts\python.exe"
+    $deeptutorMarker = Join-Path $InstallRoot "tools\deeptutor\.nexus-ai-pc-deeptutor.json"
+    if (-not (Test-Path -LiteralPath $deeptutorPython -PathType Leaf)) {
+        throw "DeepTutor Python environment is missing: $deeptutorPython"
+    }
+    if (-not (Test-Path -LiteralPath $deeptutorMarker -PathType Leaf)) {
+        throw "DeepTutor installation marker is missing: $deeptutorMarker"
+    }
+    & $deeptutorPython -c "import deeptutor_cli"
+    if ($LASTEXITCODE -ne 0) {
+        throw "DeepTutor CLI import verification failed."
+    }
+}
+
 & $python --version
 if ($LASTEXITCODE -ne 0) {
     throw "The bundled Python environment is not runnable."

@@ -37,8 +37,13 @@ class ToolRegistry:
         zotero_executable = self.program_files / "Zotero" / "zotero.exe"
         vault_path = self.ai_pc_root / "vault"
 
-        deeptutor_installed = (deeptutor_root / "pyproject.toml").is_file()
-        deeptutor_ready = deeptutor_installed and deeptutor_python.is_file()
+        # The portable installer deploys a non-editable CLI wheel from the
+        # official DeepTutor source checkout, then removes that checkout. Keep
+        # the legacy source-checkout detection for older local installations,
+        # but treat a working venv as the authoritative ready signal.
+        deeptutor_source_present = (deeptutor_root / "pyproject.toml").is_file()
+        deeptutor_installed = deeptutor_source_present or deeptutor_python.is_file()
+        deeptutor_ready = deeptutor_python.is_file()
         codex_installed = codex_executable.is_file()
         codex_ready = codex_installed and codex_skill.is_file()
         obsidian_installed = obsidian_executable.is_file()

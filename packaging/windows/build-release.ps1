@@ -1,7 +1,7 @@
 param(
     [string]$OutputRoot = "C:\AI-PC\dist",
     [string]$UvExecutable = (Join-Path $env:USERPROFILE ".local\bin\uv.exe"),
-    [string]$Version = "0.9.0.dev2-portable.1"
+    [string]$Version = "0.9.0.dev2-portable.2"
 )
 
 $ErrorActionPreference = "Stop"

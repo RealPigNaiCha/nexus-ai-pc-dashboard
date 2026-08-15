@@ -12,3 +12,5 @@ Dashboard 默认只监听 `127.0.0.1:8765`。模型生成和显式联网检索�
 API 密钥通过 Windows Credential Manager 保存。不要把密钥写入 Markdown、截图、日志、批处理文件或聊天消息。
 
 分发包的 `manifest.json` 记录所有随包文件的 SHA-256。安装器会先验证清单，任何文件缺失或被修改都会中止安装。
+
+完整版安装器会从 DeepTutor 官方 GitHub 仓库的固定提交下载一次源码，并从 Python 软件包索引下载锁定的 CLI 运行依赖；源码只存放在系统临时目录，非 editable 安装完成后立即删除。安装器不会把 API 密钥、个人资料或 Dashboard 数据发送给 DeepTutor 仓库，也不会自动安装 NextChat、Codex CLI 或其他桌面 App。

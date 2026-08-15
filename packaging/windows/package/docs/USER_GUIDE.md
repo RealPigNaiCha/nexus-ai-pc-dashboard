@@ -17,7 +17,18 @@
 4. 把 PDF、Markdown 或 TXT 文件放入安装目录的 `data\library\original`，再到“资料库”主动导入。
 5. 用一个资料中独有的词测试检索并核对来源、页码或段落。
 
-没有 API 密钥时，资料导入、关键词检索、学习记录、科研项目和本地管理功能仍可使用；AI 生成和 PaperQA2 需要模型 API。DeepTutor 本次未随包提供。
+没有 API 密钥时，资料导入、关键词检索、学习记录、科研项目和本地管理功能仍可使用；AI 生成、PaperQA2 和 DeepTutor 需要模型 API。完整版安装器会自动部署 DeepTutor CLI；如果状态页显示未安装，请先确认 Git for Windows 已安装，再重新运行安装器。
+
+## 外部 App 对照表
+
+完整版不会代替用户安装桌面 App。请按需要从官方来源下载：
+
+- [Git for Windows](https://git-scm.com/download/win)：DeepTutor 自动部署前置条件。
+- [Codex CLI](https://developers.openai.com/codex/cli/)：使用 `prompts/install-with-codex.md` 的自动安装流程。
+- [Visual Studio Code](https://code.visualstudio.com/download) + [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev)：编程 Agent 工作流。
+- [Obsidian](https://obsidian.md/download)：打开安装目录中的 `vault`。
+- [Zotero](https://www.zotero.org/download/)：文献管理和只读同步。
+- [Node.js LTS](https://nodejs.org/en/download/) + [NextChat](https://github.com/ChatGPTNextWeb/NextChat)：仅在需要独立 Web 对话界面时手动部署。
 
 ## 数据位置
 

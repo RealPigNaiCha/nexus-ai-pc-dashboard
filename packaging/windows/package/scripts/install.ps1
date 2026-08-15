@@ -2,7 +2,8 @@ param(
     [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA "Nexus-AI-PC"),
     [switch]$SkipBrowser,
     [switch]$SkipModel,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$SkipDeepTutor
 )
 
 $ErrorActionPreference = "Stop"
@@ -162,11 +163,22 @@ $uvSource = Join-Path $payloadRoot "tools\uv\uv.exe"
 $uvTarget = Join-Path $InstallRoot "tools\uv\uv.exe"
 Copy-Item -LiteralPath $uvSource -Destination $uvTarget -Force
 
+$existingDeepTutor = $false
+if (Test-Path -LiteralPath $markerPath -PathType Leaf) {
+    try {
+        $existingDeepTutor = [bool]((Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json).deeptutor)
+    }
+    catch {
+        $existingDeepTutor = $false
+    }
+}
+
 $marker = @{
     product = "Nexus AI-PC"
     version = [string]$manifest.version
     installed_at = (Get-Date).ToUniversalTime().ToString("o")
     install_root = $InstallRoot
+    deeptutor = $existingDeepTutor
 } | ConvertTo-Json
 Set-Content -LiteralPath $markerPath -Value $marker -Encoding UTF8
 Write-InstalledLaunchers $InstallRoot
@@ -181,6 +193,14 @@ try {
 }
 finally {
     Pop-Location
+}
+
+if (-not $SkipDeepTutor) {
+    Write-Step "Installing the verified DeepTutor CLI integration from its official source."
+    & (Join-Path $packageRoot "scripts\install-deeptutor.ps1") -InstallRoot $InstallRoot -UvExecutable $uvTarget
+    $markerObject = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+    $markerObject.deeptutor = $true
+    $markerObject | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $markerPath -Encoding UTF8
 }
 
 $python = Join-Path $appRoot ".venv\Scripts\python.exe"
