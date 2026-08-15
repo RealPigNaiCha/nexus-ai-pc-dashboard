@@ -10,6 +10,7 @@
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
 [![Tests](https://img.shields.io/badge/tests-186%20passed-2ea44f?style=flat-square)](tests)
 [![Coverage](https://img.shields.io/badge/coverage-82%25-2ea44f?style=flat-square)](tests)
+[![License: MIT](https://img.shields.io/badge/License-MIT-2ea44f?style=flat-square)](LICENSE)
 [![Local first](https://img.shields.io/badge/privacy-local--first-f97316?style=flat-square)](packaging/windows/package/docs/PRIVACY.md)
 
 ### [⬇️ 下载 Windows x64 完整版](https://github.com/RealPigNaiCha/nexus-ai-pc-dashboard/releases/download/v0.9.0-dev.2-portable.2/Nexus-AI-PC-0.9.0.dev2-portable.2-Windows-x64.zip)
@@ -27,7 +28,7 @@
 2. 完整解压后，双击 `one-click-install.bat` 或 `一键安装.bat`。
 3. 等待健康检查通过，浏览器会自动打开 `http://127.0.0.1:8765`。
 
-默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。支持 64 位 Windows 10/11，建议预留至少 8 GiB 磁盘空间；首次安装通常需要 10–30 分钟。完整版自动部署 DeepTutor 前需要先安装 Git for Windows。
+默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。双击安装器时可以输入其他本地目录，例如 `D:\Nexus-AI-PC`；命令行也支持 `-InstallRoot`。支持 64 位 Windows 10/11，建议预留至少 8 GiB 磁盘空间；首次安装通常需要 10–30 分钟。完整版自动部署 DeepTutor 前需要先安装 Git for Windows。
 
 ### 让 Codex 自动安装
 
@@ -41,7 +42,7 @@ Codex 会按照 [自动安装任务](prompts/install-with-codex.md) 下载当前
 
 ```text
 SHA-256
-72C9A391889CD39723FE639681C5A8D03CE5D1F70ABCA9E4B20BA9CC76DEB21D
+C349E098ED918D0FF188A078B92C9572C59EDAAD00170EAEA68D080C2491FEA2
 ```
 
 ## 它能做什么
@@ -87,7 +88,7 @@ SHA-256
 - 测试覆盖率 `82%`
 - Ruff、Pyright、Node 语法、锁文件与依赖一致性检查通过
 - 核心运行环境已知漏洞审计结果为 `0`
-- 安装包包含 105 个清单文件，隐私扫描通过
+- 安装包包含 106 个清单文件，隐私扫描通过
 
 ## 文档导航
 
@@ -100,6 +101,7 @@ SHA-256
 | [项目状态](PROJECT_STATUS.md) | 当前能力、安全边界和后续优先级 |
 | [系统设计](DESIGN.md) | 模块边界、数据流、API 约定和开发接手说明 |
 | [Windows 打包说明](packaging/windows/README.md) | 构建、验证和发布便携安装包 |
+| [LICENSE](LICENSE) | 项目 MIT 开源许可证 |
 
 ## 贡献者
 
@@ -124,6 +126,8 @@ SHA-256
 
 这个项目采用“人类负责目标与判断，AI 协助实现与验证”的协作方式。所有发布决定均由项目所有者确认。
 
+项目代码采用 [MIT License](LICENSE)。欢迎提交 Issue、改进文档、修复问题和发起 Pull Request；请在贡献前先阅读项目现有的隐私、安全边界与测试要求。
+
 ## 本地开发
 
 ```powershell
@@ -141,7 +145,7 @@ uv run python -m uvicorn backend.app:app --host 127.0.0.1 --port 8765
 <details>
 <summary><strong>展开：开发工作区的完整部署与运维手册</strong></summary>
 
-> 下面记录开发工作区和可选集成的完整运维细节，其中部分路径与附加工具不属于便携试用包。普通试用者优先阅读上方安装说明与用户手册。
+> 下面记录开发工作区和可选集成的完整运维细节，其中部分路径与附加工具不属于便携安装包。普通使用者优先阅读上方安装说明与用户手册。
 
 ## Nexus AI-PC Dashboard 部署与运维手册
 

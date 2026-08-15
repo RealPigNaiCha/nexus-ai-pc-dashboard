@@ -9,3 +9,5 @@
 - DeepTutor CLI v1.5.9 在安装时从 [HKUDS/DeepTutor](https://github.com/HKUDS/DeepTutor) 的固定提交 `37c3db6df7e886aee4f61c97ec5e618b8ab379e8` 构建并以非 editable 方式安装；临时源码安装后删除。其 CLI 运行依赖固定为 `loguru==0.7.3`、`json-repair==0.63.2` 和 `croniter==6.2.4`。
 
 本包不附带或自动安装 Codex CLI、NextChat、Obsidian、Zotero、Visual Studio Code、Cline、Git for Windows 和 Node.js；这些 App 请从各自官方来源手动安装。相关名称和商标归各自权利人所有。
+
+Nexus AI-PC Dashboard 项目本身采用 MIT License，完整文本随源码根目录的 `LICENSE` 文件发布。

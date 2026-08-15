@@ -55,6 +55,7 @@ foreach ($file in @(
     "AGENTS.md",
     "app.js",
     "DESIGN.md",
+    "LICENSE",
     "index.html",
     "install-codex-skill.ps1",
     "install-startup.ps1",

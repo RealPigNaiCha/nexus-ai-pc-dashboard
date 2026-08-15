@@ -8,7 +8,7 @@
 
 ## 给 Codex 的任务
 
-在当前电脑上安装或更新 Nexus AI-PC Dashboard，并完成下载校验、安装验证和结果汇报。除非用户明确指定其他位置，否则安装到 `%LOCALAPPDATA%\Nexus-AI-PC`。
+在当前电脑上安装或更新 Nexus AI-PC Dashboard，并完成下载校验、安装验证和结果汇报。除非用户明确指定其他位置，否则安装到 `%LOCALAPPDATA%\Nexus-AI-PC`。如果用户指定其他盘符，必须使用用户给出的完整路径，例如 `D:\Nexus-AI-PC`，不能擅自改回 C 盘。
 
 不要只给出操作教程，也不要要求用户手工执行你可以安全完成的步骤。持续工作到安装成功、得到明确失败结果，或遇到必须由用户处理的权限/登录问题。
 
@@ -31,8 +31,8 @@
 
 - 确认操作系统为 64 位 Windows 10/11。
 - 确认系统盘或用户指定的安装盘至少有 8 GiB 可用空间。
-- 默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。只有用户明确要求时才使用自定义目录。
-- 自定义目录不能是磁盘根目录、用户主目录或 `%LOCALAPPDATA%` 本身。
+- 默认安装目录为 `%LOCALAPPDATA%\Nexus-AI-PC`。先询问用户是否要使用其他本地盘；用户指定后使用完整路径，例如 `D:\Nexus-AI-PC` 或 `E:\Apps\Nexus-AI-PC`。
+- 自定义目录不能是磁盘根目录、用户主目录或 `%LOCALAPPDATA%` 本身；目标盘至少需要 8 GiB 可用空间。
 
 ### 2. 检查完整版前置条件
 
@@ -86,11 +86,13 @@
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install.ps1"
 ```
 
-- 用户指定自定义目录时，使用：
+- 用户指定自定义目录时，使用用户给出的完整路径：
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install.ps1" -InstallRoot "D:\示例\Nexus-AI-PC"
 ```
+
+- 也可以把目录作为批处理入口的第一个参数：`.\one-click-install.bat "D:\示例\Nexus-AI-PC"`。双击批处理时，安装器会交互询问目录；直接回车使用默认路径。
 
 - 安装过程会下载受管 Python 3.12、锁定的运行依赖、Chromium 运行库、本地中文向量模型，并从官方 DeepTutor 仓库安装 v1.5.9 CLI，通常需要 10–30 分钟。持续监控进程，不能因为暂时没有输出就提前结束任务。
 - 只有用户明确要求核心-only 安装时才使用 `-SkipDeepTutor`；使用后必须在结果中明确说明 DeepTutor 未安装。
@@ -104,7 +106,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\install.ps1" 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Nexus-AI-PC\scripts\verify.ps1" -InstallRoot "$env:LOCALAPPDATA\Nexus-AI-PC" -StartIfNeeded
 ```
 
-使用自定义目录时相应替换两处路径。只有以下检查全部通过才能报告安装成功：
+使用自定义目录时，验证命令中的两处路径都必须替换为同一个用户指定目录。只有以下检查全部通过才能报告安装成功：
 
 - 受管 Python 环境可以运行。
 - `http://127.0.0.1:8765/api/health` 返回 `status: ok`。

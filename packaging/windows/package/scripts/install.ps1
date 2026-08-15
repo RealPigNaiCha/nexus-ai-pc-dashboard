@@ -38,6 +38,21 @@ function Resolve-SafeInstallRoot([string]$PathValue) {
     return $fullPath
 }
 
+function Assert-SufficientDiskSpace([string]$PathValue) {
+    $driveRoot = [System.IO.Path]::GetPathRoot($PathValue)
+    if ([string]::IsNullOrWhiteSpace($driveRoot) -or $driveRoot -notmatch '^[A-Za-z]:\\$') {
+        Write-Warning "Could not determine free space for '$PathValue'. Continue only if the target volume has at least 8 GiB available."
+        return
+    }
+    $driveName = $driveRoot.Substring(0, 1)
+    $drive = Get-PSDrive -Name $driveName -ErrorAction Stop
+    $requiredBytes = 8GB
+    if ($drive.Free -lt $requiredBytes) {
+        $freeGiB = [math]::Round($drive.Free / 1GB, 2)
+        throw "The target drive $driveRoot has only $freeGiB GiB free; at least 8 GiB is required. Choose another install drive."
+    }
+}
+
 function Test-PackageManifest {
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
         throw "Package manifest is missing: $manifestPath"
@@ -112,6 +127,7 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 }
 
 $InstallRoot = Resolve-SafeInstallRoot $InstallRoot
+Assert-SufficientDiskSpace $InstallRoot
 $manifest = Test-PackageManifest
 $markerPath = Join-Path $InstallRoot $markerName
 

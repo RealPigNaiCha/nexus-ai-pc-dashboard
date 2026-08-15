@@ -3,8 +3,9 @@
 ## 最快安装
 
 1. 将 ZIP 完整解压到普通文件夹，不要直接在压缩包预览窗口中运行。
-2. 双击 `one-click-install.bat`。
-3. 安装器默认部署到 `%LOCALAPPDATA%\Nexus-AI-PC`，自动安装 Python 3.12、锁定依赖、浏览器运行库和本地中文向量模型。
+2. 双击 `one-click-install.bat`；安装器会询问安装目录，直接回车使用默认目录。
+3. 默认安装到 `%LOCALAPPDATA%\Nexus-AI-PC`，也可以输入例如 `D:\Nexus-AI-PC` 或 `E:\Apps\Nexus-AI-PC`，不要输入磁盘根目录。
+4. 安装器自动安装 Python 3.12、锁定依赖、浏览器运行库和本地中文向量模型。
 4. 安装结束后会执行健康检查并打开 `http://127.0.0.1:8765`。
 
 安装依赖、模型和 DeepTutor CLI 需要联网，首次安装通常需要 10 到 30 分钟，取决于网络速度。至少预留 8 GiB 磁盘空间。程序仅支持 64 位 Windows 10/11。
@@ -42,13 +43,19 @@ Codex 会读取仓库中的 [自动安装任务](https://github.com/RealPigNaiCh
 
 ## 自定义目录
 
-熟悉 PowerShell 的用户可以执行：
+安装器支持任意有足够空间的本地盘符。图形化入口可以直接输入目录；熟悉 PowerShell 的用户也可以执行：
 
 ```powershell
 .\scripts\install.ps1 -InstallRoot 'D:\Nexus-AI-PC'
 ```
 
-路径可以包含空格。不要把安装目标直接设为磁盘根目录、用户主目录或 `%LOCALAPPDATA%` 本身。
+也可以从命令行调用批处理入口：
+
+```powershell
+.\one-click-install.bat 'D:\Nexus-AI-PC'
+```
+
+路径可以包含空格。不要把安装目标直接设为磁盘根目录、用户主目录或 `%LOCALAPPDATA%` 本身。安装器会检查目标盘至少有 8 GiB 可用空间；如果 C 盘空间不足，直接选择 D/E 等其他本地盘即可。
 
 ## 更新与卸载
 
